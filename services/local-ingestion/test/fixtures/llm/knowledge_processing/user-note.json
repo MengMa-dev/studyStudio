@@ -1,0 +1,141 @@
+{
+  "task": "knowledge_processing",
+  "promptVersion": "knowledge_processing@1",
+  "inputHash": "743c684763e175a6f0cd802f4d92f831c8dc6d466e473a7acefc5d41387e1fb0",
+  "provider": "openrouter",
+  "model": "nvidia/nemotron-3-super-120b-a12b:free",
+  "input": {
+    "mode": "normal",
+    "episode": { "episode_id": "ep_20261003_0900", "topic": "Agent 架构", "learning_goal": "理解 Agent 系统的常见编排模式", "uncertain": false },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_effective_agents",
+      "type": "webpage",
+      "source_kind": "blog",
+      "title": "Building effective agents - Anthropic",
+      "url": "https://www.anthropic.com/engineering/building-effective-agents",
+      "content": "## What are agents? [露出:高]\nWe draw an architectural distinction between workflows and agents. Workflows are systems where LLMs and tools are orchestrated through predefined code paths. Agents, on the other hand, are systems where LLMs dynamically direct their own processes and tool usage, maintaining control over how they accomplish tasks.\n## When (and when not) to use agents [露出:高]\nWhen building applications with LLMs, we recommend finding the simplest solution possible, and only increasing complexity when needed. This might mean not building agentic systems at all. Agentic systems often trade latency and cost for better task performance. Workflows offer predictability and consistency for well-defined tasks, whereas agents are the better option when flexibility and model-driven decision-making are needed at scale.\n## Building block: The augmented LLM [露出:低]\nThe basic building block is an LLM enhanced with augmentations such as retrieval, tools, and memory.\n## Workflow: Prompt chaining [露出:低]\nPrompt chaining decomposes a task into a sequence of steps, where each LLM call processes the output of the previous one. You can add programmatic checks (gate) on intermediate steps.\n## Workflow: Routing [露出:无]\nRouting classifies an input and directs it to a specialized followup task.\n## Workflow: Orchestrator-workers [露出:无]\nA central LLM dynamically breaks down tasks, delegates them to worker LLMs, and synthesizes their results.",
+      "user_highlights": ["Workflows are systems where LLMs and tools are orchestrated through predefined code paths."],
+      "user_note": "重点：workflow 和 agent 的区别，以及什么时候不该用 agent",
+      "fuzzy_notes": ["想搞清楚 Agent 架构里有哪些编排模式"],
+      "requirement": null,
+      "engagement": "strong"
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_agent_loop",
+        "name": "Agent Loop",
+        "aliases": ["智能体循环"],
+        "kind": "pattern",
+        "summary": "LLM 在循环中根据观察结果决定下一步动作（调用工具或结束），直到完成任务。",
+        "outline": ["## 定义", "## 基本流程"],
+        "body_markdown": "## 定义\nLLM 在循环中根据上一步的观察结果决定下一步动作，直到完成任务或达到步数上限。\n## 基本流程\n1. 模型决定调用哪个工具\n2. 程序执行工具并把结果返回给模型\n3. 重复直到模型给出最终回答",
+        "similarity": 0.74,
+        "recency_relevance": 0.69
+      }
+    ],
+    "neighbor_entries": [{ "entry_id": "kb_function_calling", "name": "Function Calling", "aliases": ["工具调用"] }],
+    "ignored_names": [],
+    "categories": ["Agent 框架", "RAG", "前端工程", "LLM 基础"]
+  },
+  "output": {
+    "item_id": "item_effective_agents",
+    "value_score": 0.85,
+    "reason": "条目提供了工作流与智能体的概念区分、使用时机、增强型 LLM 基础及具体工作流编排模式，这些内容在现有知识库中未覆盖，具有较高的原理性和方法性价值，用户标注重点且互动强烈，符合入库阈值。",
+    "decision": "new",
+    "item_summary": "本文介绍了工作流（workflow）与智能体（agent）的架构区别，说明了何时应使用智能体，并阐述了增强型 LLM 作为基本构件以及三种典型工作流编排模式：提示链、路由和编排器-工作器。",
+    "item_points": [
+      "工作流通过预定义代码路径编排 LLMs 和工具；智能体则由 LLMs 动态指挥自身流程和工具使用。",
+      "智能体适用于需要灵活性和模型驱动决策的大规模任务，工作流则更适合明确定义、可预测的场景。",
+      "增强型 LLM（具备检索、工具、记忆）是智能体和工作流的基本构建块。",
+      "常见工作流模式包括提示链（带门控检查）、路由以及编排器-工作器模式。",
+      "采用智能体会带来更高延迟和成本，以换取潜在的任务性能提升。"
+    ],
+    "concepts": [
+      {
+        "name": "工作流 vs 智能体",
+        "match": "new",
+        "aliases": [],
+        "kind": "concept",
+        "evidence": [
+          {
+            "quote": "We draw an architectural distinction between workflows and agents. Workflows are systems where LLMs and tools are orchestrated through predefined code paths. Agents, on the other hand, are systems where LLMs dynamically direct their own processes and tool usage, maintaining control over how they accomplish tasks.",
+            "question": null,
+            "turn_item_id": null
+          }
+        ],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "区分工作流与智能体的核心概念：前者依赖预定义编排，后者依赖 LLMs 动态决策。",
+        "body_markdown": "## 工作流 vs 智能体\nWorkflows 是通过预定义代码路径编排 LLMs 和工具的系统；Agents 是 LLMs 动态指挥自身流程和工具使用，保持对任务完成方式的控制。",
+        "completeness": { "covered": ["概念定义", "关键区别"], "missing": ["实际案例对比", "性能基准"] }
+      },
+      {
+        "name": "何时使用智能体",
+        "match": "new",
+        "aliases": [],
+        "kind": "practice",
+        "evidence": [
+          {
+            "quote": "When building applications with LLMs, we recommend finding the simplest solution possible, and only increasing complexity when needed. This might mean not building agentic systems at all. Agentic systems often trade latency and cost for better task performance. Workflows offer predictability and consistency for well-defined tasks, whereas agents are the better option when flexibility and model-driven decision-making are needed at scale.",
+            "question": null,
+            "turn_item_id": null
+          }
+        ],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "提供使用智能体的决策准则：任务需要灵活性和模型驱动决策时选用；明确定义、可预测任务则优先工作流。",
+        "body_markdown": "## 何时使用智能体\n在需要灵活性和模型驱动决策的大规模任务中选择智能体；对于明确定义、可预测的任务，工作流提供更低延迟、更低成本且更一致的执行。",
+        "completeness": { "covered": ["决策原则", "权衡因素（延迟、成本、性能）"], "missing": ["具体阈值或评估方法"] }
+      },
+      {
+        "name": "增强型 LLM",
+        "match": "new",
+        "aliases": [],
+        "kind": "concept",
+        "evidence": [
+          {
+            "quote": "The basic building block is an LLM enhanced with augmentations such as retrieval, tools, and memory.",
+            "question": null,
+            "turn_item_id": null
+          }
+        ],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "智能体和工作流的基本构件：具备检索、工具调用和记忆能力的 LLM。",
+        "body_markdown": "## 基础：增强型 LLM\n智能体的基本构件是具备检索、工具调用和记忆能力的 LLM。",
+        "completeness": { "covered": ["定义", "核心能力"], "missing": ["实现方式", "常见库或框架示例"] }
+      },
+      {
+        "name": "工作流编排模式",
+        "match": "new",
+        "aliases": [],
+        "kind": "pattern",
+        "evidence": [
+          {
+            "quote": "Prompt chaining decomposes a task into a sequence of steps, where each LLM call processes the output of the previous one. You can add programmatic checks (gate) on intermediate steps.",
+            "question": null,
+            "turn_item_id": null
+          },
+          { "quote": "Routing classifies an input and directs it to a specialized followup task.", "question": null, "turn_item_id": null },
+          {
+            "quote": "A central LLM dynamically breaks down tasks, delegates them to worker LLMs, and synthesizes their results.",
+            "question": null,
+            "turn_item_id": null
+          }
+        ],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "描述三种常见工作流编排方式：提示链（带门控检查）、路由、编排器-工作器。",
+        "body_markdown": "## 工作流编排模式\n- **提示链**：将任务分解为序列步骤，每步 LLM 处理上一步输出，可在中间加入程序化检查（gate）。\n- **路由**：根据输入特征将其导向专门的后续任务。\n- **编排器-工作器**：中央 LLM 动态拆解任务，分配给工作器 LLM 执行，最后汇总结果。",
+        "completeness": { "covered": ["模式定义", "关键特征"], "missing": ["具体实现代码", "适用场景细化"] }
+      }
+    ],
+    "relations": [
+      { "from": "工作流 vs 智能体", "to": "智能体循环", "type": "related", "description": null },
+      { "from": "增强型 LLM", "to": "智能体循环", "type": "prerequisite", "description": null }
+    ]
+  },
+  "usage": { "inputTokens": 2378, "outputTokens": 3747, "totalTokens": 6125, "durationMs": 58574 },
+  "recordedAt": "2026-10-02T19:56:04.049Z"
+}

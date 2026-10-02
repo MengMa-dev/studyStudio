@@ -1,0 +1,47 @@
+{
+  "task": "learning_judge",
+  "promptVersion": "learning_judge@1",
+  "inputHash": "3192d52f949055a676b6e22d1c1330657dc0a2e05b940d59db74e4685f48444b",
+  "provider": "ollama",
+  "model": "qwen2.5:7b",
+  "input": {
+    "episode_id": "ep_20261002_0915",
+    "time_range": { "start": "2026-10-02T09:15:00+08:00", "end": "2026-10-02T09:24:00+08:00" },
+    "active_minutes": 6,
+    "learner_profile": { "role": "前端开发", "learning_focus": [{ "topic": "Agent 架构", "expires_at": "2026-11-01" }] },
+    "recent_kb_topics": ["LangGraph", "RAG 重排", "Function Calling"],
+    "timeline": [
+      {
+        "t": "09:15",
+        "kind": "page",
+        "title": "Understanding React Server Components",
+        "domain": "vercel.com",
+        "category": "learning_candidate",
+        "active_sec": 210,
+        "scroll": 0.45,
+        "captured_item_id": "item_rsc",
+        "from": "link"
+      },
+      { "t": "09:20", "kind": "page", "title": "Vercel Changelog", "domain": "vercel.com", "category": "neutral", "active_sec": 60, "scroll": 0.2 }
+    ],
+    "flags": []
+  },
+  "output": {
+    "episode_id": "ep_20261002_0915",
+    "is_learning": true,
+    "confidence": 0.7,
+    "topic": "React Server Components",
+    "learning_goal": "理解 React Server Components 的工作机制",
+    "related_exploration": ["Agent 架构"],
+    "distractions": [],
+    "returned_to_topic": null,
+    "signals_observed": ["active_search", "revisit", "note", "active_search"],
+    "segment_suggestion": { "action": "keep", "at": "2026-10-02T09:15:00+08:00", "with_episode_id": "ep_20261002_0915" },
+    "worth_extracting": true,
+    "candidate_item_ids": ["item_rsc"],
+    "item_engagement": [{ "item_id": "item_rsc", "engagement": "strong" }],
+    "reason": "用户在 Vercel 官方文档中学习 React Server Components，有主动搜索和笔记行为，虽有短暂分心但回到原主题继续学习。"
+  },
+  "usage": { "inputTokens": 1084, "outputTokens": 281, "totalTokens": 1365, "durationMs": 195112 },
+  "recordedAt": "2026-10-02T19:23:42.399Z"
+}

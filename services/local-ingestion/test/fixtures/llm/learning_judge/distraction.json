@@ -1,0 +1,73 @@
+{
+  "task": "learning_judge",
+  "promptVersion": "learning_judge@1",
+  "inputHash": "5f56040353b20a78465e0b1dd5aa961d0b79b955283a2e51d4057b4077899c7c",
+  "provider": "groq",
+  "model": "openai/gpt-oss-120b",
+  "input": {
+    "episode_id": "ep_20261002_2130",
+    "time_range": { "start": "2026-10-02T21:30:00+08:00", "end": "2026-10-02T22:25:00+08:00" },
+    "active_minutes": 50,
+    "learner_profile": { "role": "前端开发", "learning_focus": [{ "topic": "Agent 架构", "expires_at": "2026-11-01" }] },
+    "recent_kb_topics": ["LangGraph", "RAG 重排", "Function Calling"],
+    "timeline": [
+      { "t": "21:30", "kind": "search", "query": "MCP model context protocol 是什么", "engine": "google" },
+      {
+        "t": "21:31",
+        "kind": "page",
+        "title": "Introduction - Model Context Protocol",
+        "domain": "modelcontextprotocol.io",
+        "category": "learning_candidate",
+        "active_sec": 540,
+        "scroll": 0.85,
+        "captured_item_id": "item_mcp_intro",
+        "from": "search"
+      },
+      {
+        "t": "21:41",
+        "kind": "ai_turn",
+        "platform": "deepseek",
+        "conversation_id": "c7",
+        "question": "MCP 和 function calling 是什么关系？",
+        "turn_index": 1,
+        "captured_item_id": "item_mcp_qa"
+      },
+      { "t": "21:45", "kind": "distraction", "domain_category": "video", "duration_sec": 1200 },
+      {
+        "t": "22:05",
+        "kind": "page",
+        "title": "Architecture overview - Model Context Protocol",
+        "domain": "modelcontextprotocol.io",
+        "category": "learning_candidate",
+        "active_sec": 660,
+        "scroll": 0.9,
+        "captured_item_id": "item_mcp_arch"
+      },
+      { "t": "22:18", "kind": "copy", "text": "Hosts are LLM applications that initiate connections", "captured_item_id": "item_mcp_arch" },
+      { "t": "22:20", "kind": "note", "text": "host / client / server 三层，client 与 server 一对一", "captured_item_id": "item_mcp_arch" }
+    ],
+    "flags": ["long_distraction"]
+  },
+  "output": {
+    "episode_id": "ep_20261002_2130",
+    "is_learning": true,
+    "confidence": 0.92,
+    "topic": "Model Context Protocol（MCP）及其与 Function Calling 的关系",
+    "learning_goal": "了解 MCP 的概念、与 function calling 的关联以及系统架构层次",
+    "related_exploration": ["MCP概念", "Function Calling 关系", "Architecture 结构"],
+    "distractions": [{ "start": "21:45", "duration_sec": 1200, "type": "unrelated_browsing" }],
+    "returned_to_topic": true,
+    "signals_observed": ["active_search", "ai_multi_turn", "follow_up", "note", "copy", "long_dwell", "deep_scroll", "cross_source", "return"],
+    "segment_suggestion": { "action": "keep", "at": null, "with_episode_id": null },
+    "worth_extracting": true,
+    "candidate_item_ids": ["item_mcp_intro", "item_mcp_qa", "item_mcp_arch"],
+    "item_engagement": [
+      { "item_id": "item_mcp_intro", "engagement": "medium" },
+      { "item_id": "item_mcp_qa", "engagement": "strong" },
+      { "item_id": "item_mcp_arch", "engagement": "strong" }
+    ],
+    "reason": "出现主动搜索、AI 多轮提问、复制笔记等强信号，且在一次长时分心后仍回到原主题，整体行为符合主动学习。"
+  },
+  "usage": { "inputTokens": 2004, "outputTokens": 1079, "totalTokens": 3083, "durationMs": 3495 },
+  "recordedAt": "2026-10-02T19:46:50.696Z"
+}

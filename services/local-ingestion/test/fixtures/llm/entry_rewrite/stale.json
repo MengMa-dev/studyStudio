@@ -1,0 +1,67 @@
+{
+  "task": "entry_rewrite",
+  "promptVersion": "entry_rewrite@1",
+  "inputHash": "7cfbac663faa1e15ffea0a26e0ab4fd616378dd7f1f77624e9d8e11010fabb00",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash-lite",
+  "input": {
+    "entry": {
+      "entry_id": "kb_checkpoint",
+      "name": "Checkpoint",
+      "aliases": ["检查点", "checkpointer"],
+      "kind": "concept",
+      "category": "Agent 框架",
+      "summary": "LangGraph 在每个 super-step 结束时保存图状态快照，用于记忆、容错与时间回溯。",
+      "patch_count": 3,
+      "body_markdown": "## 定义\nLangGraph 在每个 super-step 结束时把图状态保存为 checkpoint，按 thread_id 组织。\n## Checkpointer 实现\n- MemorySaver：内存，测试用\n- SqliteSaver / PostgresSaver：持久化，生产用\n- PostgresSaver 默认 7 天后自动清理旧 checkpoint\n## 用途\n- 对话记忆（同一 thread 继续）\n- 失败后从最近 checkpoint 恢复\n- 时间回溯（replay / fork）\n- interrupt 暂停后的状态也保存在 checkpoint 中"
+    },
+    "trigger": "stale",
+    "evidence": [
+      {
+        "item_id": "item_A",
+        "source_kind": "official_doc",
+        "title": "Persistence - LangGraph Docs",
+        "quote": "LangGraph has a built-in persistence layer, implemented through checkpointers. When you compile a graph with a checkpointer, the checkpointer saves a checkpoint of the graph state at every super-step. Those checkpoints are saved to a thread, which can be accessed after graph execution.",
+        "question": null
+      },
+      {
+        "item_id": "item_A",
+        "source_kind": "official_doc",
+        "title": "Persistence - LangGraph Docs",
+        "quote": "Checkpointers enable human-in-the-loop workflows, conversational memory, time travel debugging, and fault-tolerant execution.",
+        "question": null
+      },
+      {
+        "item_id": "item_A",
+        "source_kind": "official_doc",
+        "title": "Persistence - LangGraph Docs",
+        "quote": "MemorySaver is intended for experimentation; SqliteSaver and PostgresSaver are used in production.",
+        "question": null
+      },
+      {
+        "item_id": "item_B",
+        "source_kind": "ai_answer",
+        "title": "ChatGPT：checkpoint 和 interrupt 有什么区别？",
+        "quote": "interrupt 依赖 checkpoint：没有 checkpointer 时暂停后的状态无处保存，也就无法恢复。",
+        "question": "checkpoint 和 interrupt 有什么区别？"
+      }
+    ],
+    "entry_notes": [],
+    "requirement": null,
+    "related_entry_names": ["Human-in-the-loop", "interrupt()", "LangGraph"]
+  },
+  "output": {
+    "body_markdown": "## 定义\n\nLangGraph 的 Checkpointer 是内置的持久化层实现。当使用 checkpointer 编译图时，它会在每个 super-step 结束时保存图状态的快照（checkpoint），并将其保存到 thread 中供图执行结束后访问。\n\n## 实现类型\n\nLangGraph 提供了不同的 checkpointer 实现以适应不同的场景：\n- `MemorySaver`：将数据保存在内存中，仅用于实验和测试。\n- `SqliteSaver` 和 `PostgresSaver`：用于生产环境的持久化后端。\n\n## 主要用途\n\nCheckpointer 能够启用以下工作流和功能：\n- 对话记忆（Conversational memory）\n- 容错执行（Fault-tolerant execution），支持在失败后从最近的 checkpoint 恢复\n- 人机交互工作流（Human-in-the-loop workflows）\n- 时间回溯调试（Time travel debugging）\n- 配合 interrupt() 等机制保存暂停状态，支持状态恢复",
+    "summary": "LangGraph 的 Checkpointer 是内置持久化层，在每个 super-step 结束时保存图状态快照，用于对话记忆、容错、时间回溯和人机交互。",
+    "completeness": {
+      "covered": [
+        "定义与工作机制",
+        "Checkpointer 实现类型（MemorySaver, SqliteSaver, PostgresSaver）",
+        "主要用途（对话记忆、容错、时间回溯、Human-in-the-loop、配合 interrupt）"
+      ],
+      "missing": ["Checkpointer 的具体代码配置示例", "自定义 Checkpointer 的实现方法"]
+    }
+  },
+  "usage": { "inputTokens": 1069, "outputTokens": 388, "totalTokens": 1457, "durationMs": 2036 },
+  "recordedAt": "2026-10-02T19:50:16.900Z"
+}

@@ -1,0 +1,155 @@
+{
+  "task": "knowledge_processing",
+  "promptVersion": "knowledge_processing@1",
+  "inputHash": "725b2aec5b3a10b9b659982b76c3d54b88b68863b34719622bc8318e05b44f62",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash-lite",
+  "input": {
+    "mode": "normal",
+    "episode": {
+      "episode_id": "ep_20261002_2000",
+      "topic": "LangGraph",
+      "learning_goal": "理解 interrupt、checkpoint 与 human-in-the-loop 的关系",
+      "uncertain": false
+    },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_B",
+      "type": "conversation",
+      "source_kind": "ai_answer",
+      "title": "ChatGPT：checkpoint 和 interrupt 有什么区别？",
+      "turns": [
+        {
+          "turn_item_id": "item_B",
+          "turn_index": 1,
+          "question": "checkpoint 和 interrupt 有什么区别？",
+          "answer": "两者解决的问题不同：checkpoint 是持久化机制，LangGraph 在每个 super-step 结束后把图状态存成快照；interrupt 是控制流机制，在节点内调用 interrupt() 会暂停执行、把一个值抛给调用方等待人工输入。interrupt 依赖 checkpoint：没有 checkpointer 时暂停后的状态无处保存，也就无法恢复。"
+        },
+        {
+          "turn_item_id": "item_B2",
+          "turn_index": 2,
+          "question": "interrupt 恢复时状态从哪里读？",
+          "answer": "从 checkpointer 中读取：用同一个 thread_id 调用 graph.invoke(Command(resume=value), config)，LangGraph 会加载该 thread 最新的 checkpoint，从被中断的节点重新开始执行，此时 interrupt() 返回 resume 传入的值。注意该节点会从头重新执行，interrupt() 之前的代码会再跑一遍。"
+        }
+      ],
+      "user_highlights": [],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "strong"
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_checkpoint",
+        "name": "Checkpoint",
+        "aliases": ["检查点", "checkpointer"],
+        "kind": "concept",
+        "summary": "LangGraph 在每个 super-step 结束时保存图状态快照，用于记忆、容错与时间回溯。",
+        "outline": ["## 定义", "## Checkpointer 实现", "## 用途"],
+        "body_markdown": "## 定义\nLangGraph 在每个 super-step 结束时把图状态保存为 checkpoint，按 thread_id 组织。\n## Checkpointer 实现\n- MemorySaver：内存，测试用\n- SqliteSaver / PostgresSaver：持久化，生产用\n## 用途\n- 对话记忆（同一 thread 继续）\n- 失败后从最近 checkpoint 恢复\n- 时间回溯（replay / fork）",
+        "similarity": 0.84,
+        "recency_relevance": 0.72
+      },
+      {
+        "entry_id": "kb_hitl",
+        "name": "Human-in-the-loop",
+        "aliases": ["HITL", "人在回路"],
+        "kind": "concept",
+        "summary": "在 Agent 执行过程中插入人工审批或输入节点，让人参与关键决策。",
+        "outline": ["## 定义", "## 实现方式", "## 常见场景"],
+        "body_markdown": "## 定义\n在 Agent 执行过程中插入人工审批或输入节点，由人确认后再继续。\n## 实现方式\n在需要人工介入的节点暂停执行，等待用户输入后继续。\n## 常见场景\n- 工具调用前审批（如发邮件、付款）\n- 让用户修改 Agent 生成的计划",
+        "similarity": 0.77,
+        "recency_relevance": 0.7
+      }
+    ],
+    "neighbor_entries": [{ "entry_id": "kb_langgraph", "name": "LangGraph", "aliases": [] }],
+    "ignored_names": [],
+    "categories": ["Agent 框架", "RAG", "前端工程", "LLM 基础"]
+  },
+  "output": {
+    "item_id": "item_B",
+    "value_score": 0.85,
+    "reason": "该对话详细对比了 checkpoint 和 interrupt 的区别，并补充了 interrupt 的底层依赖关系以及恢复执行时的重跑机制，能够为已有词条提供高质量的 supplement。同时内容涉及对比，需建立 contrasts 关系。",
+    "decision": "supplement",
+    "item_summary": "解析了 LangGraph 中 checkpoint 与 interrupt 的核心区别、依赖关系及恢复执行（Command resume）的重跑机制。",
+    "item_points": [
+      "checkpoint 是持久化机制，用于保存每个 super-step 结束后的图状态；interrupt 是控制流机制，用于暂停图的执行并等待外部输入。",
+      "interrupt 依赖 checkpoint，如果没有配置 checkpointer，暂停后的状态无法保存和恢复。",
+      "通过带 resume 值的 Command 恢复执行时，LangGraph 会从 checkpointer 加载状态，被中断的节点会从头重新执行一遍。"
+    ],
+    "concepts": [
+      {
+        "name": "Checkpoint",
+        "match": "kb_checkpoint",
+        "aliases": ["检查点", "checkpointer"],
+        "kind": "concept",
+        "evidence": [
+          {
+            "quote": "checkpoint 是持久化机制，LangGraph 在每个 super-step 结束后把图状态存成快照",
+            "question": "checkpoint 和 interrupt 有什么区别？",
+            "turn_item_id": "item_B"
+          },
+          {
+            "quote": "interrupt 依赖 checkpoint：没有 checkpointer 时暂停后的状态无处保存，也就无法恢复。",
+            "question": "checkpoint 和 interrupt 有什么区别？",
+            "turn_item_id": "item_B"
+          }
+        ],
+        "patch": {
+          "ops": [
+            { "op": "append_to_section", "section": "用途", "markdown": "- 支撑 interrupt 机制：为 Human-in-the-loop 的暂停与恢复提供底层的状态持久化保障。" }
+          ],
+          "summary": null,
+          "completeness": { "covered": ["定义", "持久化实现", "用途"], "missing": ["并发冲突处理"] }
+        },
+        "category": null,
+        "summary": null,
+        "body_markdown": null,
+        "completeness": null
+      },
+      {
+        "name": "Human-in-the-loop",
+        "match": "kb_hitl",
+        "aliases": ["HITL", "人在回路"],
+        "kind": "concept",
+        "evidence": [
+          {
+            "quote": "interrupt 是控制流机制，在节点内调用 interrupt() 会暂停执行、把一个值抛给调用方等待人工输入。",
+            "question": "checkpoint 和 interrupt 有什么区别？",
+            "turn_item_id": "item_B"
+          },
+          {
+            "quote": "从 checkpointer 中读取：用同一个 thread_id 调用 graph.invoke(Command(resume=value), config)，LangGraph 会加载该 thread 最最新的 checkpoint，从被中断的节点重新开始执行，此时 interrupt() 返回 resume 传入的值。注意该节点会从头重新执行，interrupt() 之前的代码会再跑一遍。",
+            "question": "interrupt 恢复时状态从哪里读？",
+            "turn_item_id": "item_B2"
+          }
+        ],
+        "patch": {
+          "ops": [
+            {
+              "op": "append_to_section",
+              "section": "实现方式",
+              "markdown": "- 通过在节点内调用 `interrupt()` 暂停执行并等待输入；使用 `graph.invoke(Command(resume=value), config)` 恢复时，被中断的节点会从头重新执行，`interrupt()` 之前的代码会再次运行。"
+            }
+          ],
+          "summary": null,
+          "completeness": { "covered": ["定义", "实现方式", "常见场景"], "missing": ["动态中断多态路由"] }
+        },
+        "category": null,
+        "summary": null,
+        "body_markdown": null,
+        "completeness": null
+      }
+    ],
+    "relations": [
+      {
+        "from": "Checkpoint",
+        "to": "Human-in-the-loop",
+        "type": "contrasts",
+        "description": "Checkpoint 是用于保存图状态快照的持久化机制，而 interrupt 是基于检查点的控制流机制，用于实现人在回路（HITL）中的暂停与恢复。"
+      }
+    ]
+  },
+  "usage": { "inputTokens": 2233, "outputTokens": 1121, "totalTokens": 3354, "durationMs": 4758 },
+  "recordedAt": "2026-10-02T19:57:10.127Z"
+}

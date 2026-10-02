@@ -1,0 +1,127 @@
+{
+  "task": "knowledge_processing",
+  "promptVersion": "knowledge_processing@1",
+  "inputHash": "8eb71df8f3a223cfa3dab86896ff2798fbe336dc7271e4c59824332e8e3878a4",
+  "provider": "openrouter",
+  "model": "nvidia/nemotron-3-super-120b-a12b:free",
+  "input": {
+    "mode": "normal",
+    "episode": {
+      "episode_id": "ep_20261002_2000",
+      "topic": "LangGraph",
+      "learning_goal": "理解 interrupt、checkpoint 与 human-in-the-loop 的关系",
+      "uncertain": false
+    },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_C",
+      "type": "webpage",
+      "source_kind": "official_doc",
+      "title": "Human-in-the-loop - LangGraph Docs",
+      "url": "https://langchain-ai.github.io/langgraph/concepts/human_in_the_loop/",
+      "content": "## Overview [露出:高]\nHuman-in-the-loop (HITL) workflows integrate human input into automated processes, allowing for decisions, validation, or corrections at key stages.\n## interrupt [露出:高]\nThe interrupt() function pauses graph execution at a specific node and surfaces a value to the client (e.g. a draft for review). To resume, the client invokes the graph again with Command(resume=value); the value becomes the return value of interrupt() inside the node.\n## Requirements [露出:高]\nHITL requires a checkpointer: graph state is persisted at each step, so a paused run can be resumed later — even after the process restarts — from the saved checkpoint using the same thread_id.\n## Design patterns [露出:低]\nApprove or reject an action; edit graph state; review tool calls; validate human input.\n## Caveats [露出:无]\nWhen resuming, the node containing interrupt() re-executes from the beginning, so side effects before interrupt() run again; place side effects after interrupt() or make them idempotent.",
+      "user_highlights": ["The interrupt() function pauses graph execution at a specific node and surfaces a value to the client"],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "strong"
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_hitl",
+        "name": "Human-in-the-loop",
+        "aliases": ["HITL", "人在回路"],
+        "kind": "concept",
+        "summary": "在 Agent 执行过程中插入人工审批或输入节点，让人参与关键决策。",
+        "outline": ["## 定义", "## 实现方式", "## 常见场景"],
+        "body_markdown": "## 定义\n在 Agent 执行过程中插入人工审批或输入节点，由人确认后再继续。\n## 实现方式\n在需要人工介入的节点暂停执行，等待用户输入后继续。\n## 常见场景\n- 工具调用前审批（如发邮件、付款）\n- 让用户修改 Agent 生成的计划",
+        "similarity": 0.86,
+        "recency_relevance": 0.7
+      },
+      {
+        "entry_id": "kb_checkpoint",
+        "name": "Checkpoint",
+        "aliases": ["检查点", "checkpointer"],
+        "kind": "concept",
+        "summary": "LangGraph 在每个 super-step 结束时保存图状态快照，用于记忆、容错与时间回溯。",
+        "outline": ["## 定义", "## Checkpointer 实现", "## 用途"],
+        "body_markdown": "## 定义\nLangGraph 在每个 super-step 结束时把图状态保存为 checkpoint，按 thread_id 组织。\n## Checkpointer 实现\n- MemorySaver：内存，测试用\n- SqliteSaver / PostgresSaver：持久化，生产用\n## 用途\n- 对话记忆（同一 thread 继续）\n- 失败后从最近 checkpoint 恢复\n- 时间回溯（replay / fork）",
+        "similarity": 0.71,
+        "recency_relevance": 0.64
+      }
+    ],
+    "neighbor_entries": [{ "entry_id": "kb_langgraph", "name": "LangGraph", "aliases": [] }],
+    "ignored_names": [],
+    "categories": ["Agent 框架", "RAG", "前端工程", "LLM 基础"]
+  },
+  "output": {
+    "item_id": "item_C",
+    "value_score": 0.78,
+    "reason": "The document adds concrete details about the interrupt() function, its dependence on a checkpointer, design patterns, and caveats about side‑effects that are not present in the existing Human-in-the-loop entry, thus qualifying as a supplement.",
+    "decision": "supplement",
+    "item_summary": "The LangGraph documentation explains Human-in-the-loop workflows, focusing on the interrupt() function that pauses graph execution, the requirement for a checkpointer to persist state, common HITL design patterns, and caveats regarding side‑effects on resume.",
+    "item_points": [
+      "interrupt() pauses graph execution at a node and returns a value to the client; resumption uses Command(resume=value).",
+      "HITL requires a checkpointer so that graph state is saved at each step and can be resumed later via the same thread_id.",
+      "Typical design patterns include approving/rejecting actions, editing graph state, reviewing tool calls, and validating human input.",
+      "On resume, the node with interrupt() re‑executes from the start, so side effects before interrupt run again; place side effects after interrupt or make them idempotent."
+    ],
+    "concepts": [
+      {
+        "name": "Human-in-the-loop",
+        "match": "kb_hitl",
+        "aliases": ["HITL", "人在回路"],
+        "kind": "concept",
+        "evidence": [
+          {
+            "quote": "The interrupt() function pauses graph execution at a specific node and surfaces a value to the client (e.g. a draft for review). To resume, the client invokes the graph again with Command(resume=value); the value becomes the return value of interrupt() inside the node.",
+            "question": null,
+            "turn_item_id": null
+          },
+          {
+            "quote": "HITL requires a checkpointer: graph state is persisted at each step, so a paused run can be resumed later — even after the process restarts — from the saved checkpoint using the same thread_id.",
+            "question": null,
+            "turn_item_id": null
+          },
+          { "quote": "Approve or reject an action; edit graph state; review tool calls; validate human input.", "question": null, "turn_item_id": null },
+          {
+            "quote": "When resuming, the node containing interrupt() re-executes from the beginning, so side effects before interrupt() run again; place side effects after interrupt() or make them idempotent.",
+            "question": null,
+            "turn_item_id": null
+          }
+        ],
+        "patch": {
+          "ops": [
+            {
+              "op": "add_section",
+              "after": "## 常见场景",
+              "heading": "## 中断与检查点",
+              "markdown": "The `interrupt()` function pauses graph execution at a specific node and surfaces a value to the client (e.g. a draft for review). To resume, the client invokes the graph again with `Command(resume=value)`; the value becomes the return value of `interrupt()` inside the node.\n\nHITL requires a checkpointer: graph state is persisted at each step, so a paused run can be resumed later — even after the process restarts — from the saved checkpoint using the same `thread_id`."
+            },
+            {
+              "op": "add_section",
+              "after": "## 中断与检查点",
+              "heading": "## 设计模式",
+              "markdown": "Common HITL design patterns:\n- Approve or reject an action (e.g., before sending an email or making a payment).\n- Edit graph state based on human feedback.\n- Review tool calls before they are executed.\n- Validate human‑provided input."
+            },
+            {
+              "op": "add_section",
+              "after": "## 设计模式",
+              "heading": "## 注意事项",
+              "markdown": "When resuming, the node containing `interrupt()` re‑executes from the beginning, so any side effects placed before `interrupt()` will run again. To avoid unintended duplication, place side effects after the `interrupt()` call or ensure they are idempotent."
+            }
+          ],
+          "summary": null,
+          "completeness": { "covered": ["定义", "实现方式", "常见场景", "中断与检查点", "设计模式", "注意事项"], "missing": [] }
+        },
+        "category": "Agent 框架",
+        "summary": "Human-in-the-loop (HITL) workflows integrate human input into automated Agent processes, allowing decisions, validation, or corrections at key stages via the interrupt() function and a checkpointer.",
+        "body_markdown": "## 定义\n在 Agent 执行过程中插入人工审批或输入节点，由人确认后再继续。\n## 实现方式\n在需要人工介入的节点暂停执行，等待用户输入后继续。\n## 常见场景\n- 工具调用前审批（如发邮件、付款）\n- 让用户修改 Agent 生成的计划\n## 中断与检查点\nThe `interrupt()` function pauses graph execution at a specific node and surfaces a value to the client (e.g. a draft for review). To resume, the client invokes the graph again with `Command(resume=value)`; the value becomes the return value of `interrupt()` inside the node.\n\nHITL requires a checkpointer: graph state is persisted at each step, so a paused run can be resumed later — even after the process restarts — from the saved checkpoint using the same `thread_id`.\n## 设计模式\nCommon HITL design patterns:\n- Approve or reject an action (e.g., before sending an email or making a payment).\n- Edit graph state based on human feedback.\n- Review tool calls before they are executed.\n- Validate human‑provided input.\n## 注意事项\nWhen resuming, the node containing `interrupt()` re‑executes from the beginning, so any side effects placed before `interrupt()` will run again. To avoid unintended duplication, place side effects after the `interrupt()` call or ensure they are idempotent。",
+        "completeness": { "covered": ["定义", "实现方式", "常见场景", "中断与检查点", "设计模式", "注意事项"], "missing": [] }
+      }
+    ],
+    "relations": []
+  },
+  "usage": { "inputTokens": 2552, "outputTokens": 2513, "totalTokens": 5065, "durationMs": 31795 },
+  "recordedAt": "2026-10-02T19:51:00.037Z"
+}

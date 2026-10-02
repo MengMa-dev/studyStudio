@@ -1,0 +1,58 @@
+{
+  "task": "learning_judge",
+  "promptVersion": "learning_judge@1",
+  "inputHash": "b4d047c67c815c8daf2bb171cf8e67dd71fbba891b0323a0966ce21ab9f4958d",
+  "provider": "ollama",
+  "model": "qwen2.5:7b",
+  "input": {
+    "episode_id": "ep_20261002_1230",
+    "time_range": { "start": "2026-10-02T12:30:00+08:00", "end": "2026-10-02T12:52:00+08:00" },
+    "active_minutes": 18,
+    "learner_profile": { "role": "前端开发", "learning_focus": [{ "topic": "Agent 架构", "expires_at": "2026-11-01" }] },
+    "recent_kb_topics": ["LangGraph", "RAG 重排", "Function Calling"],
+    "timeline": [
+      { "t": "12:30", "kind": "search", "query": "顺丰 国庆 几点停止派送", "engine": "baidu" },
+      {
+        "t": "12:31",
+        "kind": "page",
+        "title": "顺丰速运国庆节期间服务安排公告",
+        "domain": "sf-express.com",
+        "category": "neutral",
+        "active_sec": 95,
+        "scroll": 0.5,
+        "captured_item_id": "item_sf",
+        "from": "search"
+      },
+      { "t": "12:34", "kind": "distraction", "domain_category": "shopping", "duration_sec": 720 },
+      {
+        "t": "12:46",
+        "kind": "page",
+        "title": "机械键盘选购指南 2026",
+        "domain": "zhihu.com",
+        "category": "neutral",
+        "active_sec": 240,
+        "scroll": 0.6,
+        "captured_item_id": "item_kb"
+      }
+    ],
+    "flags": []
+  },
+  "output": {
+    "episode_id": "ep_20261002_1230",
+    "is_learning": false,
+    "confidence": 0.2,
+    "topic": null,
+    "learning_goal": null,
+    "related_exploration": [],
+    "distractions": [{ "start": "12:34", "duration_sec": 720, "type": "topic_switch" }],
+    "returned_to_topic": null,
+    "signals_observed": ["long_dwell", "long_dwell"],
+    "segment_suggestion": { "action": "split", "at": "2026-10-02T12:31:00+08:00", "with_episode_id": "ep_20261002_1230_split" },
+    "worth_extracting": false,
+    "candidate_item_ids": [],
+    "item_engagement": [],
+    "reason": "分心时间过长且没有围绕学习主题的相关行为"
+  },
+  "usage": { "inputTokens": 1191, "outputTokens": 249, "totalTokens": 1440, "durationMs": 118605 },
+  "recordedAt": "2026-10-02T19:21:43.774Z"
+}

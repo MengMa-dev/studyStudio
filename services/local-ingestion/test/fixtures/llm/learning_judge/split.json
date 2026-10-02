@@ -1,0 +1,74 @@
+{
+  "task": "learning_judge",
+  "promptVersion": "learning_judge@1",
+  "inputHash": "de6c10d16c6fd32bcd4d0721c2c740a401adda1300dc32a67729881630e7cbcf",
+  "provider": "ollama",
+  "model": "qwen2.5:7b",
+  "input": {
+    "episode_id": "ep_20261002_1800",
+    "time_range": { "start": "2026-10-02T18:00:00+08:00", "end": "2026-10-02T19:55:00+08:00" },
+    "active_minutes": 62,
+    "learner_profile": { "role": "前端开发", "learning_focus": [{ "topic": "Agent 架构", "expires_at": "2026-11-01" }] },
+    "recent_kb_topics": ["LangGraph", "RAG 重排", "Function Calling"],
+    "timeline": [
+      { "t": "18:00", "kind": "search", "query": "LangGraph subgraph state", "engine": "google" },
+      {
+        "t": "18:01",
+        "kind": "page",
+        "title": "Subgraphs - LangGraph Docs",
+        "domain": "langchain-ai.github.io",
+        "category": "learning_candidate",
+        "active_sec": 900,
+        "scroll": 0.9,
+        "captured_item_id": "item_subgraph",
+        "from": "search"
+      },
+      {
+        "t": "18:18",
+        "kind": "ai_turn",
+        "platform": "chatgpt",
+        "conversation_id": "c9",
+        "question": "子图和父图的 state key 不一致怎么传递？",
+        "turn_index": 1,
+        "captured_item_id": "item_subgraph_qa"
+      },
+      { "t": "18:25", "kind": "distraction", "domain_category": "video", "duration_sec": 1500 },
+      { "t": "19:40", "kind": "search", "query": "css container queries vs media queries", "engine": "google" },
+      {
+        "t": "19:41",
+        "kind": "page",
+        "title": "CSS container queries - MDN",
+        "domain": "developer.mozilla.org",
+        "category": "learning_candidate",
+        "active_sec": 600,
+        "scroll": 0.8,
+        "captured_item_id": "item_container_queries",
+        "from": "search"
+      },
+      { "t": "19:52", "kind": "selection", "text": "container-type: inline-size", "captured_item_id": "item_container_queries" }
+    ],
+    "flags": ["long_distraction"]
+  },
+  "output": {
+    "episode_id": "ep_20261002_1800",
+    "is_learning": true,
+    "confidence": 0.7,
+    "topic": "Agent 架构",
+    "learning_goal": "理解子图和父图的 state key 传递机制",
+    "related_exploration": ["Subgraphs", "container queries"],
+    "distractions": [{ "start": "18:25", "duration_sec": 1500, "type": "unrelated_browsing" }],
+    "returned_to_topic": false,
+    "signals_observed": ["active_search", "ai_multi_turn", "highlight", "long_dwell", "deep_scroll"],
+    "segment_suggestion": { "action": "split", "at": "18:25", "with_episode_id": null },
+    "worth_extracting": true,
+    "candidate_item_ids": ["item_subgraph", "item_subgraph_qa", "item_container_queries"],
+    "item_engagement": [
+      { "item_id": "item_subgraph", "engagement": "strong" },
+      { "item_id": "item_subgraph_qa", "engagement": "strong" },
+      { "item_id": "item_container_queries", "engagement": "medium" }
+    ],
+    "reason": "用户进行了主动搜索、向AI提问、划选和长时间阅读，主要围绕Agent架构展开，尽管存在一次长时间分心，但未回到原主题。"
+  },
+  "usage": { "inputTokens": 1822, "outputTokens": 362, "totalTokens": 2184, "durationMs": 271395 },
+  "recordedAt": "2026-10-02T19:36:57.610Z"
+}

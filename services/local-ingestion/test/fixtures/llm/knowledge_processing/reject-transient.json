@@ -1,0 +1,38 @@
+{
+  "task": "knowledge_processing",
+  "promptVersion": "knowledge_processing@1",
+  "inputHash": "60476774507d5a7cef6597893cffe95d09579d5837c1d62625bd946b1eea7a3f",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash-lite",
+  "input": {
+    "mode": "normal",
+    "episode": { "episode_id": "ep_20261002_1500", "topic": "Vite", "learning_goal": "解决本地开发服务器启动报错", "uncertain": false },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_vite_port",
+      "type": "webpage",
+      "source_kind": "community",
+      "title": "Vite dev server: Error: listen EADDRINUSE: address already in use :::5173",
+      "url": "https://stackoverflow.com/questions/vite-eaddrinuse",
+      "content": "## Question [露出:高]\nRunning npm run dev fails with Error: listen EADDRINUSE: address already in use :::5173.\n## Accepted answer [露出:高]\nAnother process is still using port 5173. Run lsof -i :5173 to find the PID and kill -9 <PID>, or start Vite on another port with npm run dev -- --port 5174.",
+      "user_highlights": [],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "weak"
+    },
+    "related_entries": [],
+    "neighbor_entries": [],
+    "ignored_names": [],
+    "categories": ["Agent 框架", "RAG", "前端工程", "LLM 基础"]
+  },
+  "output": {
+    "item_id": "item_vite_port",
+    "value_score": 0.2,
+    "reason": "该条目属于针对特定端口占用的临时报错解决步骤，缺乏可复用的普遍原理和高价值方法，符合 transient 判定标准。",
+    "decision": "reject",
+    "reject_reason": "transient"
+  },
+  "usage": { "inputTokens": 1611, "outputTokens": 85, "totalTokens": 1696, "durationMs": 2028 },
+  "recordedAt": "2026-10-02T19:57:08.009Z"
+}
