@@ -8,8 +8,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
-// @ts-expect-error legacy JS service, replaced in M1
-import { createIngestionServer } from "../../services/local-ingestion/src/ingestion-server.js";
+import { createIngestionServer } from "../../services/local-ingestion/src/create-server.js";
 
 const root = resolve(import.meta.dirname, "../..");
 const extensionDir = join(root, "apps/browser-extension");
