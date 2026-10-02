@@ -9,7 +9,7 @@ const urls = positionalArgs();
 const context = await launchBrowser({ headed: true });
 const targets = urls.length > 0 ? urls : ["https://chat.deepseek.com/", "https://chatgpt.com/"];
 const [first, ...rest] = targets;
-const page = context.pages()[0] ?? await context.newPage();
+const page = context.pages()[0] ?? (await context.newPage());
 await page.goto(first);
 for (const url of rest) await (await context.newPage()).goto(url);
 console.log(`Profile: ${PROFILE_DIR}`);

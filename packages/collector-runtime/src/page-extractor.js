@@ -19,7 +19,10 @@ function hasArticleSignal(doc) {
   if (/article/i.test(doc.querySelector("meta[property='og:type']")?.content ?? "")) return true;
   return [...doc.querySelectorAll("script[type='application/ld+json']")].some((script) => {
     try {
-      const types = [JSON.parse(script.textContent)].flat().flatMap((item) => [item, ...(item?.["@graph"] ?? [])]).flatMap((item) => [item?.["@type"]].flat());
+      const types = [JSON.parse(script.textContent)]
+        .flat()
+        .flatMap((item) => [item, ...(item?.["@graph"] ?? [])])
+        .flatMap((item) => [item?.["@type"]].flat());
       return types.some((type) => ARTICLE_SCHEMA_TYPES.test(type ?? ""));
     } catch {
       return false;
@@ -63,8 +66,10 @@ function bodyStats(doc, sanitizedHtml) {
 function countFeedCards(doc) {
   const here = doc.defaultView?.location?.pathname;
   const items = new Set([...doc.querySelectorAll("article, [role='feed'] > *")]);
-  return [...items].filter((item) => textLength(item.textContent ?? "") <= MAX_CARD_TEXT
-    && [...item.querySelectorAll("a[href]")].some((link) => link.pathname && link.pathname !== here)).length;
+  return [...items].filter(
+    (item) =>
+      textLength(item.textContent ?? "") <= MAX_CARD_TEXT && [...item.querySelectorAll("a[href]")].some((link) => link.pathname && link.pathname !== here)
+  ).length;
 }
 
 /** Feeds are mostly links, repeated short cards and lack a single paragraph of real prose. */
@@ -109,7 +114,11 @@ export function extractPageContent(doc = document, { siteAdapters = SITE_ADAPTER
 
   const siteRoot = site?.select(doc);
   if (siteRoot) {
-    const result = accept(extractRichContent(siteRoot, { removeSelectors: site.removeSelectors }), { title: pageTitle, canonicalUrl, extractor: `site:${site.id}` });
+    const result = accept(extractRichContent(siteRoot, { removeSelectors: site.removeSelectors }), {
+      title: pageTitle,
+      canonicalUrl,
+      extractor: `site:${site.id}`
+    });
     if (result) return result;
   }
 
@@ -135,5 +144,9 @@ export function extractPageContent(doc = document, { siteAdapters = SITE_ADAPTER
 
   const root = doc.querySelector("main, article, [role='main']") ?? doc.body;
   if (!root) return null;
-  return generic(extractRichContent(root, { removeSelectors: ["nav", "footer", "aside", "header"] }), { title: pageTitle, canonicalUrl, extractor: "dom_fallback" });
+  return generic(extractRichContent(root, { removeSelectors: ["nav", "footer", "aside", "header"] }), {
+    title: pageTitle,
+    canonicalUrl,
+    extractor: "dom_fallback"
+  });
 }

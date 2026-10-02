@@ -5,25 +5,29 @@
   "type": "module",
   "scripts": {
     "build:extension": "node scripts/build-extension.js",
-    "ingestion": "node services/local-ingestion/src/server.js",
+    "ingestion": "tsx services/local-ingestion/src/server.js",
     "demo": "node scripts/demo-ingestion.js",
     "e2e:extension": "node scripts/e2e-extension.js",
     "browser:login": "node scripts/browser-login.js",
-    "test": "node --test \"tests/**/*.test.js\"",
-    "check": "node --check services/local-ingestion/src/server.js && node --check services/local-ingestion/src/ingestion-server.js && node --check packages/collector-runtime/src/browser-collector.js && node --check apps/browser-extension/content.js && node --check apps/browser-extension/background.js",
-    "setup:ai": "node scripts/setup-dev-ai.js"
+    "setup:ai": "node scripts/setup-dev-ai.js",
+    "typecheck": "tsc -p . && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "test": "node --import tsx --test --test-reporter=spec \"tests/**/*.test.js\" \"packages/*/test/**/*.test.ts\" \"services/*/test/**/*.test.ts\" \"scripts/**/*.test.ts\"",
+    "verify:sqlite": "tsx scripts/verify/sqlite.ts",
+    "verify:ai": "tsx scripts/verify/ai-structured-output.ts",
+    "verify:wxt": "tsx scripts/verify/wxt-extension.ts"
   },
   "dependencies": {
-    "@mozilla/readability": "^0.6.0",
-    "defuddle": "^0.19.4",
-    "dompurify": "^3.4.16",
-    "esbuild": "^0.28.2",
-    "turndown": "^7.2.4"
+    "esbuild": "^0.28.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.4",
     "eslint": "^10.11.0",
+    "globals": "^17.0.0",
     "playwright-core": "^1.63.0",
     "prettier": "^3.9.9",
     "tsup": "^8.5.1",
@@ -35,6 +39,8 @@
     "apps/workbench",
     "apps/browser-extension",
     "packages/shared",
+    "packages/collector-contract",
+    "packages/collector-runtime",
     "services/local-ingestion"
   ],
   "engines": {

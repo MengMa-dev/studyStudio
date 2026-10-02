@@ -9,12 +9,22 @@ import { createIngestionServer } from "../services/local-ingestion/src/ingestion
 const token = "test-token";
 const source = { channel: "browser_extension", url: "https://example.com/a", title: "A", isStrongLearning: false };
 const base = (type, extra = {}) => ({ id: randomUUID(), schemaVersion: 1, type, occurredAt: "2026-10-01T10:00:00.000Z", source, ...extra });
-const webpage = (extra = {}) => base("webpage_captured", {
-  reason: "threshold",
-  readingSignals: { activeDurationSeconds: 95, maxScrollDepth: 0.5 },
-  content: { title: "A", canonicalUrl: "https://example.com/a", markdown: "# A\n\nbody", plainText: "A body ".repeat(40), sanitizedHtml: "<h1>A</h1>", contentHash: "abc", extractor: "defuddle", media: [] },
-  ...extra
-});
+const webpage = (extra = {}) =>
+  base("webpage_captured", {
+    reason: "threshold",
+    readingSignals: { activeDurationSeconds: 95, maxScrollDepth: 0.5 },
+    content: {
+      title: "A",
+      canonicalUrl: "https://example.com/a",
+      markdown: "# A\n\nbody",
+      plainText: "A body ".repeat(40),
+      sanitizedHtml: "<h1>A</h1>",
+      contentHash: "abc",
+      extractor: "defuddle",
+      media: []
+    },
+    ...extra
+  });
 
 async function start(dataDir) {
   const ingestion = await createIngestionServer({ dataDir, pairingToken: token });
@@ -32,7 +42,10 @@ async function start(dataDir) {
 
 async function timeline(dataDir) {
   const text = await readFile(join(dataDir, "timeline", "2026-10-01.jsonl"), "utf8");
-  return text.trim().split("\n").map((line) => JSON.parse(line));
+  return text
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
 }
 
 test("ingestion service validates, persists and deduplicates learning events", async (t) => {
@@ -67,7 +80,13 @@ test("ingestion service validates, persists and deduplicates learning events", a
   const qa = base("assistant_response_completed", {
     replyTo: "q1",
     question: { id: "q1", plainText: "什么是重排？" },
-    answer: { role: "assistant", plainText: "重排是精排。", markdown: "**重排**是精排。", sanitizedHtml: "<p><strong>重排</strong>是精排。</p>", contentHash: "h" }
+    answer: {
+      role: "assistant",
+      plainText: "重排是精排。",
+      markdown: "**重排**是精排。",
+      sanitizedHtml: "<p><strong>重排</strong>是精排。</p>",
+      contentHash: "h"
+    }
   });
   const qaResult = await service.call("/v1/events", { body: qa });
   assert.equal(qaResult.status, 201);
@@ -75,7 +94,10 @@ test("ingestion service validates, persists and deduplicates learning events", a
   assert.equal(await readFile(join(dataDir, qaResult.body.artifact, "answer.md"), "utf8"), "**重排**是精排。");
 
   const entries = await timeline(dataDir);
-  assert.deepEqual(entries.map((entry) => entry.type), ["user_note", "webpage_captured", "assistant_response_completed"]);
+  assert.deepEqual(
+    entries.map((entry) => entry.type),
+    ["user_note", "webpage_captured", "assistant_response_completed"]
+  );
   assert.equal(entries[1].content.markdown, undefined, "timeline must not duplicate full page bodies");
   assert.equal(entries[1].artifact, pageResult.body.artifact);
 
@@ -123,6 +145,13 @@ test("reading time accumulates on captured pages: capturing stay always, later s
   assert.equal(metadata.readingStats.totalActiveSeconds, 120);
   assert.equal(metadata.sessionId, "s1");
   const entries = await timeline(dataDir);
-  assert.deepEqual(entries.map((entry) => [entry.type, entry.countedSeconds]), [["webpage_captured", undefined], ["reading_session_closed", 45], ["reading_session_closed", 75]]);
+  assert.deepEqual(
+    entries.map((entry) => [entry.type, entry.countedSeconds]),
+    [
+      ["webpage_captured", undefined],
+      ["reading_session_closed", 45],
+      ["reading_session_closed", 75]
+    ]
+  );
   assert.equal(entries[2].totalActiveSeconds, 120);
 });

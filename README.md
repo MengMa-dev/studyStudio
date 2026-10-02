@@ -29,13 +29,24 @@ npm run build:extension
 
 构建后在 Chrome 中“加载已解压的扩展程序”，选择 `apps/browser-extension`，在弹窗中填入配对令牌。弹窗会显示连接状态；本地服务不可用时事件暂存在扩展中，恢复连接后自动重发。
 
-## 测试
+WXT 版扩展（M2 起替代上面的 esbuild 构建）：`npm run build -w @study-studio/browser-extension`，产物在 `apps/browser-extension/.output/chrome-mv3`；`npm run dev -w @study-studio/browser-extension` 启动热更新开发。
+
+## 检查与测试
 
 ```bash
-npm test
+npm run check   # 类型检查（各 workspace）+ ESLint + Prettier
+npm test        # node:test（经 tsx 运行 TS）
 ```
 
-包含本地服务测试和基于 Playwright 的 fixture 回归测试（使用本机 Google Chrome，可用 `STUDY_STUDIO_CHROME_CHANNEL` 指定其他 channel；未安装时浏览器测试自动跳过）。
+包含 schema 单测、SQLite 能力测试、本地服务测试和基于 Playwright 的 fixture 回归测试（使用本机 Google Chrome，可用 `STUDY_STUDIO_CHROME_CHANNEL` 指定其他 channel；未安装时浏览器测试自动跳过）。
+
+### 技术验证（M0）
+
+```bash
+npm run verify:sqlite   # node:sqlite + FTS5（unicode61 / trigram）+ sqlite-vec
+npm run verify:ai       # generateObject + Zod discriminated union，按 ai-seed.json 逐个模型实测；--only=mock,ollama 只跑本地，--full 云端也跑全部样例
+npm run verify:wxt      # WXT 构建扩展，加载后采集 fixtures 并经后台送达本地服务
+```
 
 ### 真实网站验证
 
@@ -52,6 +63,7 @@ node scripts/debug-live-chat.js https://chat.deepseek.com/ "问题"       # 只�
 ## 目录
 
 - `packages/collector-runtime`：宿主无关的采集运行时（门槛判定、网页提取级联、站点/对话适配器、SPA 导航）。
-- `packages/collector-contract`：事件类型与校验。
+- `packages/collector-contract`：事件构造与校验（基于 `packages/shared` 的 schema）。
+- `packages/shared`：前后端与扩展共用的 Zod schema（事件、设置）与域名规则。
 - `services/local-ingestion`：本地接收服务（校验、按 canonical URL 去重、时间线、inbox、阅读时长累加）。
 - `apps/browser-extension`、`apps/desktop`：两个宿主的最小桥接。

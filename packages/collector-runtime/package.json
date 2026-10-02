@@ -1,0 +1,15 @@
+{
+  "name": "@study-studio/collector-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/browser-collector.js"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "defuddle": "^0.19.4",
+    "dompurify": "^3.4.16",
+    "turndown": "^7.2.4"
+  }
+}

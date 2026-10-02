@@ -1,7 +1,7 @@
 import http from "node:http";
 import { mkdir, appendFile, writeFile, readFile, readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { validateEvent } from "../../../packages/collector-contract/src/events.js";
+import { validateEvent } from "@study-studio/collector-contract";
 
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
 
@@ -52,7 +52,11 @@ const MIN_REVISIT_SECONDS = 60;
 function timelineEntry(event, artifact) {
   if (event.type === "webpage_captured") {
     const { content, ...rest } = event;
-    return { ...rest, content: { title: content.title, canonicalUrl: content.canonicalUrl, contentHash: content.contentHash, extractor: content.extractor }, artifact };
+    return {
+      ...rest,
+      content: { title: content.title, canonicalUrl: content.canonicalUrl, contentHash: content.contentHash, extractor: content.extractor },
+      artifact
+    };
   }
   if (event.type === "assistant_response_completed") {
     const { answer, ...rest } = event;
@@ -75,7 +79,11 @@ export async function createIngestionServer({ dataDir, pairingToken, minRevisitS
   for (const file of (await listDirectory(paths.timeline)).filter((name) => name.endsWith(".jsonl"))) {
     for (const line of (await readFile(join(paths.timeline, file), "utf8")).split("\n")) {
       if (!line.trim()) continue;
-      try { seenEventIds.add(JSON.parse(line).id); } catch { /* skip corrupt line */ }
+      try {
+        seenEventIds.add(JSON.parse(line).id);
+      } catch {
+        /* skip corrupt line */
+      }
     }
   }
   /** One inbox entry per canonical URL: reopening a captured page never captures it again. */
@@ -111,16 +119,23 @@ export async function createIngestionServer({ dataDir, pairingToken, minRevisitS
       const folder = join(dataDir, relative);
       await mkdir(join(folder, "assets"), { recursive: true });
       const { markdown, plainText, sanitizedHtml, ...contentMeta } = content;
-      await writeFile(join(folder, "metadata.json"), JSON.stringify({
-        id: event.id,
-        occurredAt: event.occurredAt,
-        source: event.source,
-        sessionId: event.sessionId,
-        reason: event.reason,
-        readingSignals: event.readingSignals,
-        readingStats: { totalActiveSeconds: 0, sessionCount: 0 },
-        content: contentMeta
-      }, null, 2));
+      await writeFile(
+        join(folder, "metadata.json"),
+        JSON.stringify(
+          {
+            id: event.id,
+            occurredAt: event.occurredAt,
+            source: event.source,
+            sessionId: event.sessionId,
+            reason: event.reason,
+            readingSignals: event.readingSignals,
+            readingStats: { totalActiveSeconds: 0, sessionCount: 0 },
+            content: contentMeta
+          },
+          null,
+          2
+        )
+      );
       await writeFile(join(folder, "content.md"), markdown ?? "");
       await writeFile(join(folder, "content.txt"), plainText);
       await writeFile(join(folder, "content.html"), sanitizedHtml ?? "");

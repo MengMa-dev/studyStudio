@@ -60,9 +60,8 @@ export const SITE_ADAPTERS = [
   {
     id: "zhihu",
     matches: ({ hostname }) => hostname === "zhuanlan.zhihu.com" || hostname === "www.zhihu.com",
-    isContentPage: ({ hostname, pathname }) => hostname === "zhuanlan.zhihu.com"
-      ? /^\/p\/\d+/.test(pathname)
-      : /^\/(question|pin|zvideo)\/\d+/.test(pathname),
+    isContentPage: ({ hostname, pathname }) =>
+      hostname === "zhuanlan.zhihu.com" ? /^\/p\/\d+/.test(pathname) : /^\/(question|pin|zvideo)\/\d+/.test(pathname),
     select: (doc) => {
       const post = doc.querySelector(".Post-RichText");
       if (post) return post;

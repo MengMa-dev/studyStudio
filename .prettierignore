@@ -1,0 +1,17 @@
+node_modules/
+package-lock.json
+dist/
+.output/
+.wxt/
+StudyStudioData/
+.browser-profile/
+prototype/
+docs/
+tests/fixtures/
+apps/desktop/
+apps/browser-extension/*.js
+apps/browser-extension/*.json
+apps/browser-extension/*.html
+!apps/browser-extension/package.json
+!apps/browser-extension/tsconfig.json
+*.md

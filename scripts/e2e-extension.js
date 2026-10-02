@@ -17,12 +17,12 @@ const dataDir = process.env.STUDY_STUDIO_DATA_DIR ?? join(root, "StudyStudioData
 const pairingToken = process.env.STUDY_STUDIO_TOKEN ?? (await readFile(join(dataDir, ".pairing-token"), "utf8")).trim();
 
 const context = await launchBrowser({ extension: true });
-let worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
+let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
 await worker.evaluate((token) => chrome.storage.local.set({ ingestionUrl: "http://127.0.0.1:43118", pairingToken: token }), pairingToken);
 console.log("[extension]", worker.url());
 
 const startedAt = new Date().toISOString();
-const page = context.pages()[0] ?? await context.newPage();
+const page = context.pages()[0] ?? (await context.newPage());
 page.on("pageerror", (error) => console.log("[pageerror]", error.message.slice(0, 200)));
 await page.goto(url, { waitUntil: "domcontentloaded" });
 await page.waitForTimeout(8_000);
@@ -37,7 +37,10 @@ if (process.env.E2E_RELOAD_EXTENSION) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     await page.waitForTimeout(500);
     const next = context.serviceWorkers().find((candidate) => candidate !== previous);
-    if (next) { worker = next; break; }
+    if (next) {
+      worker = next;
+      break;
+    }
   }
   await extensionsPage.close();
   await page.bringToFront();
@@ -47,16 +50,21 @@ if (process.env.E2E_RELOAD_EXTENSION) {
 }
 
 const composer = page.locator("#prompt-textarea, textarea[name='prompt'], textarea[name='search'], textarea#chat-input, textarea").first();
-await composer.waitFor({ timeout: 15_000 }).then(() => composer.focus()).catch(async (error) => {
-  await page.screenshot({ path: join(tmpdir(), "study-studio-e2e.png") });
-  console.log("[no composer] page:", page.url(), "screenshot:", join(tmpdir(), "study-studio-e2e.png"));
-  throw error;
-});
+await composer
+  .waitFor({ timeout: 15_000 })
+  .then(() => composer.focus())
+  .catch(async (error) => {
+    await page.screenshot({ path: join(tmpdir(), "study-studio-e2e.png") });
+    console.log("[no composer] page:", page.url(), "screenshot:", join(tmpdir(), "study-studio-e2e.png"));
+    throw error;
+  });
 await composer.pressSequentially(question, { delay: 30 });
 if (process.env.E2E_SEND === "click") {
   await page.evaluate(() => {
     const textarea = document.querySelector("textarea");
-    const buttons = [...document.querySelectorAll("[role='button'], button")].filter((button) => textarea.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const buttons = [...document.querySelectorAll("[role='button'], button")].filter(
+      (button) => textarea.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING
+    );
     (buttons.find((button) => button.classList.contains("ds-button--primary")) ?? buttons.at(-1)).click();
   });
 } else {
@@ -77,10 +85,12 @@ for (const file of await readdir(timelineDir)) {
   }
 }
 entries.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
-for (const entry of entries) console.log("[timeline]", entry.type, entry.source.url, entry.message?.plainText ?? entry.answer?.preview ?? "", entry.artifact ?? "");
+for (const entry of entries)
+  console.log("[timeline]", entry.type, entry.source.url, entry.message?.plainText ?? entry.answer?.preview ?? "", entry.artifact ?? "");
 const pending = await worker.evaluate(() => chrome.storage.local.get("pendingEvents").then((value) => value.pendingEvents?.length ?? 0));
 console.log("[pending in extension queue]", pending);
-const ok = entries.some((entry) => entry.type === "user_message_sent") && entries.some((entry) => entry.type === "assistant_response_completed" && entry.artifact);
+const ok =
+  entries.some((entry) => entry.type === "user_message_sent") && entries.some((entry) => entry.type === "assistant_response_completed" && entry.artifact);
 console.log(ok ? "E2E PASS" : "E2E FAIL");
 await context.close();
 process.exit(ok ? 0 : 1);

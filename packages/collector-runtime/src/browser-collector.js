@@ -28,7 +28,16 @@ function event(type, fields) {
  * stay on a captured page lasting at least `minRevisitSeconds`; other stays emit nothing.
  * `pageIndex.lookup(canonicalUrl)` is provided by the host and resolves to `{ captured }`.
  */
-export function createPageCollector({ emit, channel, isStrongLearning = false, threshold: thresholdOverrides = DEFAULT_THRESHOLD, pageIndex = null, doc = document, win = window, checkIntervalMs = 5_000 }) {
+export function createPageCollector({
+  emit,
+  channel,
+  isStrongLearning = false,
+  threshold: thresholdOverrides = DEFAULT_THRESHOLD,
+  pageIndex = null,
+  doc = document,
+  win = window,
+  checkIntervalMs = 5_000
+}) {
   const threshold = { ...DEFAULT_THRESHOLD, ...thresholdOverrides };
   const sessionId = id();
   const openedAt = Date.now();
@@ -61,7 +70,13 @@ export function createPageCollector({ emit, channel, isStrongLearning = false, t
     const depth = total <= 0 ? 1 : win.scrollY / total;
     maxScrollDepth = Math.max(maxScrollDepth, Math.min(1, depth));
   };
-  const signals = () => ({ isStrongLearning, activeDurationSeconds: activeSeconds(), maxScrollDepth: Number(maxScrollDepth.toFixed(3)), interactionCount, noteWritten });
+  const signals = () => ({
+    isStrongLearning,
+    activeDurationSeconds: activeSeconds(),
+    maxScrollDepth: Number(maxScrollDepth.toFixed(3)),
+    interactionCount,
+    noteWritten
+  });
   const qualifies = () => noteWritten || interactionCount > 0 || (maxScrollDepth >= threshold.minScrollDepth && activeSeconds() >= threshold.minActiveSeconds);
   const persistIfQualified = (reason) => {
     if (captured || previouslyCaptured || !qualifies()) return;
@@ -84,19 +99,26 @@ export function createPageCollector({ emit, channel, isStrongLearning = false, t
   doc.addEventListener("visibilitychange", syncActive, { signal });
   win.addEventListener("scroll", syncScroll, { passive: true, signal });
   doc.addEventListener("copy", () => onInteraction("copy"), { signal });
-  doc.addEventListener("mouseup", () => {
-    const text = doc.getSelection()?.toString().trim() ?? "";
-    if (text.length >= 2 && text !== lastSelection) {
-      lastSelection = text;
-      onInteraction("selection");
-    }
-  }, { signal });
+  doc.addEventListener(
+    "mouseup",
+    () => {
+      const text = doc.getSelection()?.toString().trim() ?? "";
+      if (text.length >= 2 && text !== lastSelection) {
+        lastSelection = text;
+        onInteraction("selection");
+      }
+    },
+    { signal }
+  );
   const interval = win.setInterval(() => persistIfQualified("threshold"), checkIntervalMs);
 
   if (pageIndex) {
     Promise.resolve()
       .then(() => pageIndex.lookup(canonicalUrl))
-      .then((result) => result?.captured === true, () => false)
+      .then(
+        (result) => result?.captured === true,
+        () => false
+      )
       .then((known) => {
         previouslyCaptured = known;
         if (!stopped && deferredReason) persistIfQualified(deferredReason);
@@ -122,7 +144,8 @@ export function createPageCollector({ emit, channel, isStrongLearning = false, t
       listeners.abort();
       win.clearInterval(interval);
       const readingTimeCounts = captured || (previouslyCaptured && activeSeconds() >= threshold.minRevisitSeconds);
-      if (readingTimeCounts) emit(event("reading_session_closed", { source, sessionId, readingSignals: signals(), openedAt: new Date(openedAt).toISOString(), captured }));
+      if (readingTimeCounts)
+        emit(event("reading_session_closed", { source, sessionId, readingSignals: signals(), openedAt: new Date(openedAt).toISOString(), captured }));
     }
   };
 }
@@ -157,7 +180,14 @@ export function createConversationCollector({ adapter, emit, channel, isStrongLe
     armedText = "";
     candidate = null;
     pending = { id: id(), text, occurredAt: now(), userCountBefore };
-    emit({ id: pending.id, schemaVersion: 1, type: "user_message_sent", occurredAt: pending.occurredAt, source: source(), message: { role: "user", plainText: text, markdown: text } });
+    emit({
+      id: pending.id,
+      schemaVersion: 1,
+      type: "user_message_sent",
+      occurredAt: pending.occurredAt,
+      source: source(),
+      message: { role: "user", plainText: text, markdown: text }
+    });
     scheduleAnswerCheck();
   };
   const emitFromComposer = () => emitQuestion(adapter.readComposer(doc), adapter.getUserMessages(doc).length);
@@ -184,12 +214,14 @@ export function createConversationCollector({ adapter, emit, channel, isStrongLe
     const question = pending;
     pending = null;
     candidate = null;
-    emit(event("assistant_response_completed", {
-      source: source(),
-      replyTo: question.id,
-      question: { id: question.id, plainText: question.text, occurredAt: question.occurredAt },
-      answer
-    }));
+    emit(
+      event("assistant_response_completed", {
+        source: source(),
+        replyTo: question.id,
+        question: { id: question.id, plainText: question.text, occurredAt: question.occurredAt },
+        answer
+      })
+    );
   }
 
   const onMutations = () => {
@@ -205,11 +237,27 @@ export function createConversationCollector({ adapter, emit, channel, isStrongLe
     if (pending) scheduleAnswerCheck();
   };
 
-  doc.addEventListener("input", (e) => { if (isComposerTarget(e.target)) armedText = adapter.readComposer(doc); }, { capture: true, signal });
-  doc.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && isComposerTarget(e.target)) emitFromComposer();
-  }, { capture: true, signal });
-  doc.addEventListener("click", (e) => { if (adapter.isSendButton?.(e.target, doc)) emitFromComposer(); }, { capture: true, signal });
+  doc.addEventListener(
+    "input",
+    (e) => {
+      if (isComposerTarget(e.target)) armedText = adapter.readComposer(doc);
+    },
+    { capture: true, signal }
+  );
+  doc.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing && isComposerTarget(e.target)) emitFromComposer();
+    },
+    { capture: true, signal }
+  );
+  doc.addEventListener(
+    "click",
+    (e) => {
+      if (adapter.isSendButton?.(e.target, doc)) emitFromComposer();
+    },
+    { capture: true, signal }
+  );
   const observer = new MutationObserver(() => {
     win.clearTimeout(mutationTimer);
     mutationTimer = win.setTimeout(onMutations, debounceMs);
@@ -220,7 +268,9 @@ export function createConversationCollector({ adapter, emit, channel, isStrongLe
   openPage();
 
   return {
-    get source() { return source(); },
+    get source() {
+      return source();
+    },
     navigated: openPage,
     addNote(text) {
       emit(event("user_note", { source: source(), note: { text }, context: { activeSourceUrl: win.location.href } }));
@@ -238,7 +288,19 @@ export function createConversationCollector({ adapter, emit, channel, isStrongLe
  * Host entry point: picks the conversation or page collector for the current URL and
  * follows SPA navigations. Hosts only provide `emit` and optionally `pageIndex`.
  */
-export function installCollector({ emit, channel, isStrongLearning = false, threshold = DEFAULT_THRESHOLD, pageIndex = null, conversationAdapters = CONVERSATION_ADAPTERS, doc = document, win = window, navigationPollMs = 1_000, checkIntervalMs, debounceMs }) {
+export function installCollector({
+  emit,
+  channel,
+  isStrongLearning = false,
+  threshold = DEFAULT_THRESHOLD,
+  pageIndex = null,
+  conversationAdapters = CONVERSATION_ADAPTERS,
+  doc = document,
+  win = window,
+  navigationPollMs = 1_000,
+  checkIntervalMs,
+  debounceMs
+}) {
   let current = null;
   let mode = null;
   let href = win.location.href;
@@ -264,7 +326,9 @@ export function installCollector({ emit, channel, isStrongLearning = false, thre
   win.addEventListener("popstate", onNavigate);
 
   return {
-    get mode() { return mode; },
+    get mode() {
+      return mode;
+    },
     addNote: (text) => current?.addNote(text),
     stop() {
       win.clearInterval(poll);

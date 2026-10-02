@@ -9,7 +9,7 @@ import { extractRichContent } from "./rich-content.js";
 
 function readEditable(node) {
   if (!node) return "";
-  return ("value" in node ? node.value : node.innerText ?? node.textContent ?? "").trim();
+  return ("value" in node ? node.value : (node.innerText ?? node.textContent ?? "")).trim();
 }
 
 function chatgptCodeLanguage(pre) {
@@ -23,7 +23,9 @@ export const chatgptAdapter = {
   platform: "chatgpt",
   stableMs: 1_500,
   matches: ({ hostname }) => hostname === "chatgpt.com" || hostname === "chat.openai.com",
-  getComposer: (doc) => doc.querySelector("#prompt-textarea, textarea[name='prompt'], [data-mobile-composer-prompt]") ?? doc.querySelector("form textarea, form [contenteditable='true']"),
+  getComposer: (doc) =>
+    doc.querySelector("#prompt-textarea, textarea[name='prompt'], [data-mobile-composer-prompt]") ??
+    doc.querySelector("form textarea, form [contenteditable='true']"),
   getUserMessages: (doc) => [...doc.querySelectorAll("[data-message-author-role='user'], [data-message-role='user']")],
   getAssistantMessages: (doc) => [...doc.querySelectorAll("[data-message-author-role='assistant'], [data-message-role='assistant']")],
   isGenerating: (doc) => {
@@ -31,7 +33,8 @@ export const chatgptAdapter = {
     const last = [...doc.querySelectorAll("[data-message-role='assistant']")].at(-1);
     return Boolean(last && !last.hasAttribute("data-message-complete"));
   },
-  isSendButton: (target) => Boolean(target.closest?.("[data-testid='send-button'], [data-composer-submit], button[aria-label*='Send'], button[aria-label*='发送']")),
+  isSendButton: (target) =>
+    Boolean(target.closest?.("[data-testid='send-button'], [data-composer-submit], button[aria-label*='Send'], button[aria-label*='发送']")),
   readComposer: (doc) => readEditable(chatgptAdapter.getComposer(doc)),
   readUserMessage: (node) => (node.querySelector("[data-user-message-copy], .whitespace-pre-wrap") ?? node).innerText.trim(),
   extractMessage: (node) => ({
@@ -46,9 +49,7 @@ export const chatgptAdapter = {
 const DEEPSEEK_THINKING = ".ds-think-content, .ds-think, [class*='ds-think']";
 
 function deepseekAnswerRoot(node) {
-  return [...node.querySelectorAll(".ds-markdown, .ds-assistant-message-main-content")]
-    .filter((item) => !item.closest(DEEPSEEK_THINKING))
-    .at(-1) ?? null;
+  return [...node.querySelectorAll(".ds-markdown, .ds-assistant-message-main-content")].filter((item) => !item.closest(DEEPSEEK_THINKING)).at(-1) ?? null;
 }
 
 function deepseekMessages(doc) {
@@ -74,7 +75,9 @@ function isDeepseekSendButton(target, doc) {
   const label = `${button.getAttribute("aria-label") ?? ""} ${button.textContent ?? ""}`;
   if (/停止|Stop|stop/i.test(label)) return false;
   if (/发送|Send|submit/i.test(label)) return true;
-  const composer = doc.querySelector("textarea#chat-input, textarea[name='search'], textarea[placeholder*='DeepSeek'], textarea[placeholder*='发送']") ?? doc.querySelector("textarea");
+  const composer =
+    doc.querySelector("textarea#chat-input, textarea[name='search'], textarea[placeholder*='DeepSeek'], textarea[placeholder*='发送']") ??
+    doc.querySelector("textarea");
   if (!composer) return false;
   // Primary circular button after the composer is the send control in the current UI.
   return button.classList.contains("ds-button--primary") && Boolean(composer.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -84,7 +87,9 @@ export const deepseekAdapter = {
   platform: "deepseek",
   stableMs: 1_500,
   matches: ({ hostname }) => hostname === "chat.deepseek.com",
-  getComposer: (doc) => doc.querySelector("textarea#chat-input, textarea[name='search'], textarea[placeholder*='DeepSeek'], textarea[placeholder*='发送']") ?? doc.querySelector("textarea"),
+  getComposer: (doc) =>
+    doc.querySelector("textarea#chat-input, textarea[name='search'], textarea[placeholder*='DeepSeek'], textarea[placeholder*='发送']") ??
+    doc.querySelector("textarea"),
   getUserMessages: (doc) => deepseekMessages(doc).filter(isDeepseekUserMessage),
   getAssistantMessages: (doc) => deepseekMessages(doc).filter(isDeepseekAssistantMessage),
   isGenerating: (doc) => Boolean(doc.querySelector("[aria-label*='停止'], [aria-label*='Stop'], .ds-loading, .ds-button--loading")),

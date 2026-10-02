@@ -8,35 +8,51 @@ import { launchBrowser, positionalArgs } from "./lib/browser.js";
  */
 const [url = "https://chatgpt.com/", question = "用一句话解释什么是向量召回"] = positionalArgs();
 const root = process.cwd();
-const { outputFiles } = await build({ entryPoints: [join(root, "packages/collector-runtime/src/browser-collector.js")], bundle: true, format: "iife", globalName: "StudyStudioCollector", platform: "browser", target: ["chrome120"], write: false });
+const { outputFiles } = await build({
+  entryPoints: [join(root, "packages/collector-runtime/src/browser-collector.js")],
+  bundle: true,
+  format: "iife",
+  globalName: "StudyStudioCollector",
+  platform: "browser",
+  target: ["chrome120"],
+  write: false
+});
 
 const context = await launchBrowser();
-const page = context.pages()[0] ?? await context.newPage();
-page.on("console", (message) => { if (message.text().startsWith("[ss]")) console.log(message.text()); });
+const page = context.pages()[0] ?? (await context.newPage());
+page.on("console", (message) => {
+  if (message.text().startsWith("[ss]")) console.log(message.text());
+});
 page.on("pageerror", (error) => console.log("[pageerror]", error.message));
 await page.goto(url, { waitUntil: "domcontentloaded" });
 await page.waitForTimeout(8_000);
 
-const probe = () => page.evaluate(() => {
-  const adapter = window.StudyStudioCollector?.resolveConversationAdapter(location);
-  if (!adapter) return { url: location.href, adapter: null };
-  return {
-    url: location.href,
-    platform: adapter.platform,
-    composer: adapter.getComposer(document)?.outerHTML.slice(0, 80) ?? null,
-    users: adapter.getUserMessages(document).length,
-    assistants: adapter.getAssistantMessages(document).length,
-    generating: adapter.isGenerating(document)
-  };
-});
+const probe = () =>
+  page.evaluate(() => {
+    const adapter = window.StudyStudioCollector?.resolveConversationAdapter(location);
+    if (!adapter) return { url: location.href, adapter: null };
+    return {
+      url: location.href,
+      platform: adapter.platform,
+      composer: adapter.getComposer(document)?.outerHTML.slice(0, 80) ?? null,
+      users: adapter.getUserMessages(document).length,
+      assistants: adapter.getAssistantMessages(document).length,
+      generating: adapter.isGenerating(document)
+    };
+  });
 await page.addScriptTag({ content: outputFiles[0].text }).catch((error) => console.log("[inject error]", error.message));
 console.log("[probe:before]", await probe());
-await page.evaluate(() => {
-  window.StudyStudioCollector.installCollector({
-    emit: (event) => console.log(`[ss] ${event.type} ${JSON.stringify({ q: event.message?.plainText, a: event.answer?.markdown?.slice(0, 300), platform: event.source?.platform })}`),
-    channel: "browser_extension"
-  });
-}).catch((error) => console.log("[install error]", error.message));
+await page
+  .evaluate(() => {
+    window.StudyStudioCollector.installCollector({
+      emit: (event) =>
+        console.log(
+          `[ss] ${event.type} ${JSON.stringify({ q: event.message?.plainText, a: event.answer?.markdown?.slice(0, 300), platform: event.source?.platform })}`
+        ),
+      channel: "browser_extension"
+    });
+  })
+  .catch((error) => console.log("[install error]", error.message));
 
 const composer = page.locator("#prompt-textarea, textarea[name='prompt'], textarea[name='search'], textarea#chat-input, textarea").first();
 await composer.click();

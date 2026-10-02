@@ -1,5 +1,5 @@
 {
-  "name": "@study-studio/shared",
+  "name": "@study-studio/collector-contract",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,6 +10,6 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "zod": "^4.6.5"
+    "@study-studio/shared": "*"
   }
 }

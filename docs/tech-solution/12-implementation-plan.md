@@ -96,6 +96,16 @@ M0 → M1 → M2 扩展（完成后用户换装、开始积累数据）→ M3 �
 
 验收：三项验证有可运行的最小脚本；现有测试通过。
 
+**M0 结论（2026-10-03，已完成）**：`npm run check`、`npm test`（27 项，含 Chrome fixture 回归）通过；三项验证均通过，无需换方案。
+
+| 验证 | 脚本 | 结论 |
+| --- | --- | --- |
+| SQLite | `npm run verify:sqlite`（另有 `scripts/verify/sqlite.test.ts` 纳入 `npm test`） | SQLite 3.51.2 WAL / quick_check 正常；sqlite-vec v0.1.9 KNN 与删除正常。`Intl.Segmenter` 会把「编码器」「文档」「精排」切成单字或短词，查询按同样方式分词并用短语匹配仍能命中，但更说明 trigram 兜底必要 |
+| 结构化输出 | `npm run verify:ai` | 6 个任务模型 + `mock` 均输出合法的 discriminated union 且判定符合预期。**OpenAI 兼容服务商（Groq / OpenRouter）的严格 JSON Schema 不允许顶层 `anyOf`**，M4 网关需把顶层 union 包进对象（如 `{ result }`）；Gemini、Ollama 可直接用顶层 union。JSON 模式 + schema 写入提示词 + 本地校验的降级路径可用。耗时：`qwen2.5:7b` 本机 20–140 秒（首次含加载），OpenRouter 免费模型 15–35 秒且常遇上游 429，Gemini 3.8 Flash 偶发 503 高负载——网关重试与备用模型必须做 |
+| WXT | `npm run verify:wxt` | WXT 0.21 打包 `collector-runtime` 后 content script 正常：文章按门槛入箱、GitHub 站点适配器、ChatGPT 问答均经后台送达本地服务。`apps/browser-extension/entrypoints/` 已有 content / background / popup 的 TS 版（与旧版行为一致），M2 在此基础上改造；旧版 esbuild 构建暂留至 M2 换装 |
+
+其他 M0 落地：`collector-contract` 迁移为 TS，校验改用 `packages/shared` 的 Zod schema（含 01 新增的行为事件，`unrelated` 页面带 URL / 标题会被拒）；`packages/shared` 含事件、批量同步、采集设置（正式 / 调试预设取代 `STUDY_STUDIO_DEV`）、整理设置（默认值按上文约定）与学习者档案 schema。
+
 ### M1 本地服务与存储（02、03 / 04 / 10 的服务端基础）
 
 - Hono 改造：Host / Origin 校验、配对令牌、工作台一次性登录链接 + Cookie（S23）、静态托管 `/app`。

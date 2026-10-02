@@ -41,7 +41,10 @@ function blockText(root) {
   clone.querySelectorAll("br").forEach((node) => node.replaceWith("\n"));
   clone.querySelectorAll(BLOCK_ELEMENTS).forEach((node) => node.append("\n"));
   clone.querySelectorAll("td,th").forEach((node) => node.append("\t"));
-  return clone.textContent.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return clone.textContent
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function replaceMath(root, doc) {
@@ -108,7 +111,10 @@ export function extractRichContent(root, { removeSelectors = [], getCodeLanguage
   const template = doc.createElement("template");
   template.innerHTML = sanitizedHtml;
   const sanitizedRoot = template.content;
-  const markdown = converter.turndown(sanitizedHtml).replace(/\n{3,}/g, "\n\n").trim();
+  const markdown = converter
+    .turndown(sanitizedHtml)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   const plainText = blockText(sanitizedRoot);
 
   const links = [];

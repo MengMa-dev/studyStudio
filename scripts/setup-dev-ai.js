@@ -20,13 +20,25 @@ const KEY_ALIASES = {
 const providers = [
   { id: "ollama", name: "Ollama（本地）", type: "ollama", base_url: "http://127.0.0.1:11434/api", default_model: "qwen2.5:7b" },
   { id: "gemini", name: "Google Gemini", type: "google", base_url: "https://generativelanguage.googleapis.com/v1beta", default_model: "gemini-3.8-flash" },
-  { id: "openrouter", name: "OpenRouter", type: "openai-compatible", base_url: "https://openrouter.ai/api/v1", default_model: "nvidia/nemotron-3-super-120b-a12b:free" },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    type: "openai-compatible",
+    base_url: "https://openrouter.ai/api/v1",
+    default_model: "nvidia/nemotron-3-super-120b-a12b:free"
+  },
   { id: "groq", name: "Groq", type: "openai-compatible", base_url: "https://api.groq.com/openai/v1", default_model: "openai/gpt-oss-120b" }
 ];
 
 const taskModels = [
   { task: "learning_judge", provider_id: "ollama", model: "qwen2.5:7b", fallback_provider_id: "groq", fallback_model: "openai/gpt-oss-120b" },
-  { task: "knowledge_processing", provider_id: "gemini", model: "gemini-3.8-flash", fallback_provider_id: "openrouter", fallback_model: "nvidia/nemotron-3-super-120b-a12b:free" },
+  {
+    task: "knowledge_processing",
+    provider_id: "gemini",
+    model: "gemini-3.8-flash",
+    fallback_provider_id: "openrouter",
+    fallback_model: "nvidia/nemotron-3-super-120b-a12b:free"
+  },
   { task: "entry_rewrite", provider_id: "gemini", model: "gemini-3.5-flash-lite", fallback_provider_id: "openrouter", fallback_model: "qwen/qwen3.8-27b:free" },
   { task: "embedding", provider_id: "ollama", model: "nomic-embed-text", fallback_provider_id: null, fallback_model: null }
 ];
@@ -64,7 +76,9 @@ async function check(provider, apiKey) {
     return daily ? `ok（免费模型今日 ${daily.used}/${daily.limit}）` : "ok";
   }
   const ids = provider.type === "google" ? body.models.map((m) => m.name.replace(/^models\//, "")) : body.data.map((m) => m.id);
-  const wanted = taskModels.flatMap((t) => [t.provider_id === provider.id && t.model, t.fallback_provider_id === provider.id && t.fallback_model]).filter(Boolean);
+  const wanted = taskModels
+    .flatMap((t) => [t.provider_id === provider.id && t.model, t.fallback_provider_id === provider.id && t.fallback_model])
+    .filter(Boolean);
   const missing = wanted.filter((m) => !ids.includes(m));
   return missing.length ? `key 有效，但未列出模型 ${missing.join(", ")}` : "ok";
 }

@@ -11,7 +11,15 @@ const root = join(import.meta.dirname, "..");
 const fixture = (name) => readFile(join(root, "tests/fixtures", name), "utf8");
 
 async function bundle(entry, globalName) {
-  const result = await build({ entryPoints: [join(root, entry)], bundle: true, format: "iife", globalName, platform: "browser", target: ["chrome120"], write: false });
+  const result = await build({
+    entryPoints: [join(root, entry)],
+    bundle: true,
+    format: "iife",
+    globalName,
+    platform: "browser",
+    target: ["chrome120"],
+    write: false
+  });
   return result.outputFiles[0].text;
 }
 
@@ -39,23 +47,26 @@ async function launch() {
 /** Opens `url` served from a fixture, injects the runtime and installs a collector recording events. */
 async function openWithCollector(url, html, { captured = false, threshold = { minActiveSeconds: 90, minScrollDepth: 0.35 } } = {}) {
   const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
-  await page.route("**/*", (route) => route.request().url() === url
-    ? route.fulfill({ contentType: "text/html", body: html })
-    : route.fulfill({ status: 204, body: "" }));
+  await page.route("**/*", (route) =>
+    route.request().url() === url ? route.fulfill({ contentType: "text/html", body: html }) : route.fulfill({ status: 204, body: "" })
+  );
   await page.goto(url);
   await page.addScriptTag({ content: runtimeBundle });
-  await page.evaluate(({ captured, threshold }) => {
-    window.__events = [];
-    window.__collector = window.StudyStudioCollector.installCollector({
-      emit: (event) => window.__events.push(event),
-      channel: "browser_extension",
-      threshold,
-      pageIndex: { lookup: async () => ({ captured }) },
-      checkIntervalMs: 200,
-      navigationPollMs: 100,
-      debounceMs: 50
-    });
-  }, { captured, threshold });
+  await page.evaluate(
+    ({ captured, threshold }) => {
+      window.__events = [];
+      window.__collector = window.StudyStudioCollector.installCollector({
+        emit: (event) => window.__events.push(event),
+        channel: "browser_extension",
+        threshold,
+        pageIndex: { lookup: async () => ({ captured }) },
+        checkIntervalMs: 200,
+        navigationPollMs: 100,
+        debounceMs: 50
+      });
+    },
+    { captured, threshold }
+  );
   return page;
 }
 
@@ -71,10 +82,11 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
   });
   after(() => browser?.close());
 
-  const browserTest = (name, fn) => test(name, async (t) => {
-    if (!browser) return t.skip(`Chrome (${channel}) is not available for Playwright`);
-    await fn(t);
-  });
+  const browserTest = (name, fn) =>
+    test(name, async (t) => {
+      if (!browser) return t.skip(`Chrome (${channel}) is not available for Playwright`);
+      await fn(t);
+    });
 
   browserTest("extracts a generic article with code, table, image and canonical URL", async () => {
     const page = await openWithCollector("https://blog.example.com/posts/retrieval-reranking?utm_source=x", await fixture("article.html"));
@@ -103,7 +115,9 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
   });
 
   browserTest("captures a page only after the reading threshold is met", async () => {
-    const page = await openWithCollector("https://blog.example.com/posts/retrieval-reranking", await fixture("article.html"), { threshold: { minActiveSeconds: 1, minScrollDepth: 0.35 } });
+    const page = await openWithCollector("https://blog.example.com/posts/retrieval-reranking", await fixture("article.html"), {
+      threshold: { minActiveSeconds: 1, minScrollDepth: 0.35 }
+    });
     assert.equal((await events(page, "page_opened")).length, 1);
     await page.waitForTimeout(1_500);
     assert.equal((await events(page, "webpage_captured")).length, 0, "no scroll yet");
@@ -153,7 +167,10 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
 
     const idle = await openWithCollector(url, html);
     await idle.evaluate(() => window.__collector.stop());
-    assert.deepEqual((await events(idle)).map((event) => event.type), ["page_opened"]);
+    assert.deepEqual(
+      (await events(idle)).map((event) => event.type),
+      ["page_opened"]
+    );
     await idle.close();
   });
 
@@ -165,7 +182,11 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
     const short = await openWithCollector(url, html, { captured: true, threshold });
     await short.evaluate(() => document.dispatchEvent(new Event("copy")));
     await short.evaluate(() => window.__collector.stop());
-    assert.deepEqual((await events(short)).map((event) => event.type), ["page_opened"], "no capture and no time below the minimum");
+    assert.deepEqual(
+      (await events(short)).map((event) => event.type),
+      ["page_opened"],
+      "no capture and no time below the minimum"
+    );
     await short.close();
 
     const long = await openWithCollector(url, html, { captured: true, threshold });
@@ -188,7 +209,11 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
     await zhihu.close();
 
     const zhihuWithoutAdapter = await openWithCollector("https://www.zhihu.com/follow", await fixture("zhihu-home.html"));
-    assert.equal(await zhihuWithoutAdapter.evaluate(() => window.StudyStudioCollector.extractPageContent(document, { siteAdapters: [] })), null, "content heuristics alone reject the feed");
+    assert.equal(
+      await zhihuWithoutAdapter.evaluate(() => window.StudyStudioCollector.extractPageContent(document, { siteAdapters: [] })),
+      null,
+      "content heuristics alone reject the feed"
+    );
     await zhihuWithoutAdapter.close();
 
     const feed = await openWithCollector("https://news.example.com/latest", await fixture("feed.html"));
@@ -213,7 +238,10 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
   browserTest("ChatGPT: records question and completed answer without backfilling history", async () => {
     const page = await openWithCollector("https://chatgpt.com/c/abc", await fixture("chatgpt.html"));
     await page.waitForTimeout(300);
-    assert.deepEqual((await events(page)).map((event) => event.type), ["page_opened"]);
+    assert.deepEqual(
+      (await events(page)).map((event) => event.type),
+      ["page_opened"]
+    );
 
     await page.fill("#prompt-textarea", "向量召回和重排有什么区别？");
     await page.press("#prompt-textarea", "Enter");
@@ -257,8 +285,10 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
     assert.equal(question.message.plainText, "用一句话解释向量召回");
 
     await page.evaluate(() => history.pushState({}, "", "/uc/6abe6f6a"));
-    await page.evaluate(() => window.fixture.stream(`<p data-assistant-stream-block="">向量召回是<?marker name="tail"?>按语义相似度找结果。</p>
-      <pre data-assistant-stream-block=""><code data-assistant-syntax-highlighted=""><span>results = index.search(query_vector, top_k=10)</span></code><span data-message-content-controls=""><button aria-label="复制密码"></button></span></pre>`));
+    await page.evaluate(() =>
+      window.fixture.stream(`<p data-assistant-stream-block="">向量召回是<?marker name="tail"?>按语义相似度找结果。</p>
+      <pre data-assistant-stream-block=""><code data-assistant-syntax-highlighted=""><span>results = index.search(query_vector, top_k=10)</span></code><span data-message-content-controls=""><button aria-label="复制密码"></button></span></pre>`)
+    );
     await page.waitForTimeout(3_500);
     assert.equal((await events(page, "assistant_response_completed")).length, 0, "incomplete until data-message-complete");
 
@@ -284,8 +314,10 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
     assert.equal((await events(page, "assistant_response_completed")).length, 0);
 
     await page.evaluate(() => window.fixture.think("用户在问交叉编码器……"));
-    await page.evaluate(() => window.fixture.stream(`<p class="ds-markdown-paragraph">交叉编码器把查询和文档拼接后一起编码。</p>
-      <div class="md-code-block"><div class="md-code-block-banner"><span class="md-code-block-infostring">python</span><button>复制</button></div><pre>model.predict([(q, d)])</pre></div>`));
+    await page.evaluate(() =>
+      window.fixture.stream(`<p class="ds-markdown-paragraph">交叉编码器把查询和文档拼接后一起编码。</p>
+      <div class="md-code-block"><div class="md-code-block-banner"><span class="md-code-block-infostring">python</span><button>复制</button></div><pre>model.predict([(q, d)])</pre></div>`)
+    );
     await page.evaluate(() => window.fixture.finish());
     const answer = await waitForEvent(page, "assistant_response_completed", 15_000);
     assert.equal(answer.source.platform, "deepseek");
@@ -301,19 +333,26 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
     const dataDir = await mkdtemp(join(tmpdir(), "study-studio-e2e-"));
     const ingestion = await createIngestionServer({ dataDir, pairingToken: "e2e" });
     const port = await ingestion.listen(0);
-    t.after(async () => { await ingestion.close(); await rm(dataDir, { recursive: true, force: true }); });
+    t.after(async () => {
+      await ingestion.close();
+      await rm(dataDir, { recursive: true, force: true });
+    });
     const client = createLocalIngestionClient({ ingestionUrl: `http://127.0.0.1:${port}`, pairingToken: "e2e" });
 
     const url = "https://blog.example.com/posts/retrieval-reranking";
     const html = await fixture("article.html");
     const page = await browser.newPage();
     const responses = [];
-    await page.exposeFunction("hostSendEvent", async (event) => { responses.push(await client.sendEvent(event)); });
+    await page.exposeFunction("hostSendEvent", async (event) => {
+      responses.push(await client.sendEvent(event));
+    });
     await page.exposeFunction("hostLookupPage", (canonicalUrl) => client.lookupPage(canonicalUrl));
     await page.addInitScript(() => {
       window.StudyStudioHost = { sendEvent: (event) => window.hostSendEvent(event), lookupPage: (canonicalUrl) => window.hostLookupPage(canonicalUrl) };
     });
-    await page.route("**/*", (route) => route.request().url() === url ? route.fulfill({ contentType: "text/html", body: html }) : route.fulfill({ status: 204, body: "" }));
+    await page.route("**/*", (route) =>
+      route.request().url() === url ? route.fulfill({ contentType: "text/html", body: html }) : route.fulfill({ status: 204, body: "" })
+    );
 
     await page.goto(url);
     await page.addScriptTag({ content: desktopBundle });
@@ -329,7 +368,10 @@ describe("collector runtime in Chrome", { concurrency: false }, () => {
     assert.equal(metadata.reason, "note");
     assert.match(await readFile(join(dataDir, captured.artifact, "content.md"), "utf8"), /# Understanding Vector Retrieval/);
     const day = new Date().toISOString().slice(0, 10);
-    const types = (await readFile(join(dataDir, "timeline", `${day}.jsonl`), "utf8")).trim().split("\n").map((line) => JSON.parse(line).type);
+    const types = (await readFile(join(dataDir, "timeline", `${day}.jsonl`), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).type);
     assert.deepEqual(types, ["user_note", "webpage_captured"], "navigation is not written to the timeline");
 
     await page.reload();
