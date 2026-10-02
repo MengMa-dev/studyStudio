@@ -1,96 +1,181 @@
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { readFile, readdir } from "node:fs/promises";
-import { launchBrowser, positionalArgs } from "./lib/browser.js";
-
 /**
- * Loads apps/browser-extension into Playwright's Chromium (headless by default, shared logged-in
- * profile), pairs it with the running ingestion service, asks one question on a real site and
- * reports what reached StudyStudioData.
- * Usage: node scripts/e2e-extension.js [url] [question] [--headed]
- * Env: E2E_RELOAD_EXTENSION=1 reloads the extension after the tab is open (no page refresh);
- *      E2E_SEND=click clicks the send button instead of pressing Enter.
+ * M2 extension e2e against the local stub server (not the real ingestion service yet).
+ * Covers: offline queue → sync, manual sync, 422 failed display, activity events without body.
+ * Usage: npx tsx scripts/e2e-extension.js [--headed] [--skip-build]
  */
-const [url = "https://chatgpt.com/", question = "用一句话解释向量召回"] = positionalArgs();
-const root = process.cwd();
-const dataDir = process.env.STUDY_STUDIO_DATA_DIR ?? join(root, "StudyStudioData");
-const pairingToken = process.env.STUDY_STUDIO_TOKEN ?? (await readFile(join(dataDir, ".pairing-token"), "utf8")).trim();
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { chromium } from "playwright-core";
+import { createStubServer } from "../apps/browser-extension/test/stub-server.ts";
 
-const context = await launchBrowser({ extension: true });
-let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
-await worker.evaluate((token) => chrome.storage.local.set({ ingestionUrl: "http://127.0.0.1:43118", pairingToken: token }), pairingToken);
-console.log("[extension]", worker.url());
+const root = resolve(import.meta.dirname, "..");
+const extensionSrc = join(root, "apps/browser-extension");
+const extensionDir = join(extensionSrc, ".output/chrome-mv3");
+const headed = process.argv.includes("--headed");
+const skipBuild = process.argv.includes("--skip-build");
 
-const startedAt = new Date().toISOString();
-const page = context.pages()[0] ?? (await context.newPage());
-page.on("pageerror", (error) => console.log("[pageerror]", error.message.slice(0, 200)));
-await page.goto(url, { waitUntil: "domcontentloaded" });
-await page.waitForTimeout(8_000);
-
-if (process.env.E2E_RELOAD_EXTENSION) {
-  // Same as a user clicking the reload icon on chrome://extensions.
-  const previous = worker;
-  const extensionsPage = await context.newPage();
-  await extensionsPage.goto("chrome://extensions");
-  await extensionsPage.locator("#devMode").click();
-  await extensionsPage.locator("extensions-item #dev-reload-button").click();
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    await page.waitForTimeout(500);
-    const next = context.serviceWorkers().find((candidate) => candidate !== previous);
-    if (next) {
-      worker = next;
-      break;
-    }
-  }
-  await extensionsPage.close();
-  await page.bringToFront();
-  await page.waitForTimeout(2_000);
-  const reloadedAt = await worker.evaluate(() => globalThis.__startedAt ?? (globalThis.__startedAt = Date.now()));
-  console.log("[extension reloaded without refreshing the tab]", { newWorker: worker !== previous, workers: context.serviceWorkers().length, reloadedAt });
+if (!skipBuild) {
+  const build = spawnSync("npx", ["wxt", "build"], { cwd: extensionSrc, stdio: "inherit" });
+  if (build.status !== 0) throw new Error("wxt build failed");
 }
 
-const composer = page.locator("#prompt-textarea, textarea[name='prompt'], textarea[name='search'], textarea#chat-input, textarea").first();
-await composer
-  .waitFor({ timeout: 15_000 })
-  .then(() => composer.focus())
-  .catch(async (error) => {
-    await page.screenshot({ path: join(tmpdir(), "study-studio-e2e.png") });
-    console.log("[no composer] page:", page.url(), "screenshot:", join(tmpdir(), "study-studio-e2e.png"));
-    throw error;
+const fixtureHtml = await readFile(join(root, "tests/fixtures/article.html"), "utf8");
+const articleUrl = "https://blog.example.com/posts/retrieval-reranking";
+const rejectId = "rejectme422xxxxxxxxxxxx";
+const token = "e2e-token";
+
+const profileDir = await mkdtemp(join(tmpdir(), "study-studio-e2e-ext-"));
+
+let context = null;
+let stub = null;
+const results = [];
+
+async function waitFor(label, probe, timeoutMs = 25_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await probe();
+    if (value) return value;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(`timed out: ${label}`);
+}
+
+async function check(name, fn) {
+  try {
+    const detail = await fn();
+    results.push({ name, ok: true, detail });
+    console.log(`PASS  ${name} — ${detail}`);
+  } catch (error) {
+    results.push({ name, ok: false, detail: error.message });
+    console.log(`FAIL  ${name} — ${error.message}`);
+  }
+}
+
+/** Service-worker helpers (chrome.runtime.sendMessage cannot target the same SW). */
+const sw = (worker, fn, arg) => worker.evaluate(fn, arg);
+
+try {
+  context = await chromium.launchPersistentContext(profileDir, {
+    channel: "chromium",
+    headless: !headed,
+    args: [`--disable-extensions-except=${extensionDir}`, `--load-extension=${extensionDir}`]
   });
-await composer.pressSequentially(question, { delay: 30 });
-if (process.env.E2E_SEND === "click") {
+  await context.route("**/*", async (route) => {
+    const url = route.request().url().split("?")[0];
+    if (url === articleUrl) return route.fulfill({ contentType: "text/html", body: fixtureHtml });
+    if (url.startsWith("http://127.0.0.1:")) return route.continue();
+    return route.fulfill({ status: 204, body: "" });
+  });
+
+  let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
+  await waitFor("hooks", async () => sw(worker, () => Boolean(globalThis.__studyStudio)));
+  await sw(worker, ([url, pairingToken]) => chrome.storage.local.set({ ingestionUrl: url, pairingToken }), ["http://127.0.0.1:9", token]);
+
+  const page = await context.newPage();
+  await page.goto(articleUrl);
+  await page.waitForTimeout(800);
   await page.evaluate(() => {
-    const textarea = document.querySelector("textarea");
-    const buttons = [...document.querySelectorAll("[role='button'], button")].filter(
-      (button) => textarea.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING
-    );
-    (buttons.find((button) => button.classList.contains("ds-button--primary")) ?? buttons.at(-1)).click();
+    const p = document.querySelector("article p, main p, p");
+    if (!p) return;
+    const range = document.createRange();
+    range.selectNodeContents(p);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    document.dispatchEvent(new Event("copy", { bubbles: true }));
   });
-} else {
-  await page.keyboard.press("Enter");
-}
-console.log("[sent]", question);
-await page.waitForTimeout(30_000);
-await page.screenshot({ path: join(tmpdir(), "study-studio-e2e.png") });
-console.log("[screenshot]", join(tmpdir(), "study-studio-e2e.png"));
+  await page.waitForTimeout(1_200);
 
-const timelineDir = join(dataDir, "timeline");
-const entries = [];
-for (const file of await readdir(timelineDir)) {
-  for (const line of (await readFile(join(timelineDir, file), "utf8")).split("\n")) {
-    if (!line.trim()) continue;
-    const entry = JSON.parse(line);
-    if (entry.occurredAt >= startedAt) entries.push(entry);
-  }
+  await check("服务停止 → 采集入 IndexedDB", async () => {
+    const counts = await waitFor("pending", async () => {
+      const status = await sw(worker, () => globalThis.__studyStudio.status());
+      return status?.counts?.total > 0 ? status.counts : null;
+    });
+    return `pending total=${counts.total}, knowledge=${counts.knowledge}`;
+  });
+
+  stub = await createStubServer({ pairingToken: token, rejectIds: [rejectId] });
+  const liveUrl = stub.url;
+  await sw(
+    worker,
+    async ([url, pairingToken]) => {
+      await chrome.storage.local.set({ ingestionUrl: url, pairingToken });
+      return globalThis.__studyStudio.saveConnection(url, pairingToken);
+    },
+    [liveUrl, token]
+  );
+
+  await check("启动服务 → 自动同步 → 计数归零", async () => {
+    const status = await waitFor("synced", async () => {
+      await sw(worker, () => globalThis.__studyStudio.sync());
+      const current = await sw(worker, () => globalThis.__studyStudio.status());
+      return current?.counts?.total === 0 && current?.connectivity?.state === "online" ? current : null;
+    });
+    if (stub.events.length < 1) throw new Error("stub received no events");
+    return `events=${stub.events.length}, pending=${status.counts.total}`;
+  });
+
+  await check("行为事件不含正文", async () => {
+    await page.reload();
+    await page.waitForTimeout(1_000);
+    await sw(worker, () => globalThis.__studyStudio.sync());
+    await waitFor("page_session", async () => stub.events.find((event) => event.type === "page_session"));
+    const allActivity = stub.events.filter((event) => ["page_session", "selection", "copy", "search_performed", "activity_state"].includes(event.type));
+    if (!allActivity.length) throw new Error("no activity events");
+    for (const event of allActivity) {
+      if (event.content || event.message || event.answer) throw new Error(`${event.type} has body fields`);
+      const json = JSON.stringify(event);
+      if (/"sanitizedHtml"/.test(json)) throw new Error(`${event.type} leaked html`);
+    }
+    return `activity=${allActivity.length}`;
+  });
+
+  await check("手动同步", async () => {
+    const before = stub.events.length;
+    await sw(worker, async () => {
+      await globalThis.__studyStudio.ingest({
+        id: crypto.randomUUID(),
+        schemaVersion: 1,
+        type: "user_note",
+        occurredAt: new Date().toISOString(),
+        source: { channel: "browser_extension", url: "https://blog.example.com/posts/retrieval-reranking" },
+        note: { text: "手动同步备注" }
+      });
+      return globalThis.__studyStudio.sync();
+    });
+    await waitFor("manual note", async () => stub.events.find((event) => event.type === "user_note" && event.note?.text === "手动同步备注"));
+    return `delta=${stub.events.length - before}`;
+  });
+
+  await check("422 失败展示", async () => {
+    await sw(
+      worker,
+      async (id) =>
+        globalThis.__studyStudio.ingest({
+          id,
+          schemaVersion: 1,
+          type: "user_note",
+          occurredAt: new Date().toISOString(),
+          source: { channel: "browser_extension", url: "https://blog.example.com/posts/retrieval-reranking" },
+          note: { text: "should fail" }
+        }),
+      rejectId
+    );
+    const failed = await waitFor("failed list", async () => {
+      const list = await sw(worker, () => globalThis.__studyStudio.failedList());
+      return Array.isArray(list) && list.some((item) => item.eventId === rejectId) ? list : null;
+    });
+    return `failed=${failed.length}`;
+  });
+} finally {
+  await context?.close().catch(() => {});
+  await stub?.close().catch(() => {});
+  await rm(profileDir, { recursive: true, force: true });
 }
-entries.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
-for (const entry of entries)
-  console.log("[timeline]", entry.type, entry.source.url, entry.message?.plainText ?? entry.answer?.preview ?? "", entry.artifact ?? "");
-const pending = await worker.evaluate(() => chrome.storage.local.get("pendingEvents").then((value) => value.pendingEvents?.length ?? 0));
-console.log("[pending in extension queue]", pending);
-const ok =
-  entries.some((entry) => entry.type === "user_message_sent") && entries.some((entry) => entry.type === "assistant_response_completed" && entry.artifact);
+
+const ok = results.length > 0 && results.every((item) => item.ok);
 console.log(ok ? "E2E PASS" : "E2E FAIL");
-await context.close();
 process.exit(ok ? 0 : 1);

@@ -3,7 +3,8 @@ import { chromium } from "playwright-core";
 
 /** Persistent profile shared by all live scripts so site logins (DeepSeek, ChatGPT) survive between runs. */
 export const PROFILE_DIR = process.env.STUDY_STUDIO_BROWSER_PROFILE ?? join(process.cwd(), ".browser-profile");
-export const EXTENSION_DIR = join(process.cwd(), "apps/browser-extension");
+/** WXT chrome-mv3 output; run `npx wxt build` in apps/browser-extension first. */
+export const EXTENSION_DIR = join(process.cwd(), "apps/browser-extension/.output/chrome-mv3");
 
 export const isHeaded = () => process.argv.includes("--headed") || process.env.HEADED === "1";
 

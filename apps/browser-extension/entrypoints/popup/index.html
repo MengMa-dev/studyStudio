@@ -4,32 +4,162 @@
     <meta charset="utf-8" />
     <title>Study Studio</title>
     <style>
-      body {
-        font: 14px system-ui;
-        width: 300px;
-        padding: 12px;
+      :root {
+        color-scheme: light;
+        --ink: #1c1917;
+        --muted: #78716c;
+        --line: #e7e5e4;
+        --ok: #16a34a;
+        --warn: #ea580c;
+        --off: #78716c;
+        --bg: #fafaf9;
       }
+      body {
+        margin: 0;
+        width: 320px;
+        font:
+          13px/1.45 "IBM Plex Sans",
+          "Noto Sans SC",
+          sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(120% 80% at 0% 0%, #fff7ed 0%, transparent 55%), radial-gradient(100% 60% at 100% 0%, #ecfeff 0%, transparent 50%), var(--bg);
+        padding: 14px;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font:
+          600 16px/1.2 "IBM Plex Serif",
+          "Noto Serif SC",
+          serif;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--off);
+        flex: none;
+      }
+      .dot.online {
+        background: var(--ok);
+      }
+      .dot.unauthorized {
+        background: var(--warn);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .counts {
+        margin: 12px 0 4px;
+      }
+      .counts strong {
+        font-size: 22px;
+        font-family: "IBM Plex Serif", "Noto Serif SC", serif;
+      }
+      button,
       input,
-      textarea,
-      button {
+      textarea {
         box-sizing: border-box;
         width: 100%;
         margin: 6px 0;
-        padding: 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        font: inherit;
       }
-      textarea {
-        height: 80px;
+      button {
+        cursor: pointer;
+        background: #1c1917;
+        color: #fff;
+        border-color: #1c1917;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      button.secondary {
+        background: #fff;
+        color: var(--ink);
+      }
+      details {
+        margin-top: 8px;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--muted);
+      }
+      .progress {
+        height: 4px;
+        background: var(--line);
+        border-radius: 999px;
+        overflow: hidden;
+        margin: 8px 0;
+        display: none;
+      }
+      .progress > span {
+        display: block;
+        height: 100%;
+        background: #0f766e;
+        width: 0;
+      }
+      .toast {
+        margin-top: 8px;
+        color: #0f766e;
+        min-height: 1.2em;
+      }
+      .failed {
+        margin-top: 6px;
+        font-size: 12px;
+      }
+      .failed ul {
+        margin: 4px 0 0;
+        padding-left: 18px;
+        max-height: 90px;
+        overflow: auto;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid var(--line);
+        margin: 12px 0;
       }
     </style>
   </head>
   <body>
-    <strong>Study Studio Collector</strong>
-    <input id="url" placeholder="本地服务地址" value="http://127.0.0.1:43118" />
-    <input id="token" placeholder="配对令牌" />
-    <button id="save">保存连接</button>
+    <h1>Study Studio</h1>
+    <div class="row">
+      <span id="dot" class="dot"></span>
+      <span id="connection-label">检测中…</span>
+    </div>
+    <div class="counts">待同步知识 <strong id="knowledge-count">0</strong> 条</div>
+    <div class="muted" id="record-count">另含 0 条阅读与提问记录</div>
+    <p class="muted" id="hint">本地服务未启动时，采集内容先暂存在浏览器；启动 Study Studio 后会自动同步，也可手动同步。</p>
+    <button id="sync" disabled title="本地服务未连接">同步到 Study Studio</button>
+    <div class="progress" id="progress"><span></span></div>
+    <div class="failed">
+      <span id="failed-summary">同步失败 0 条</span>
+      <button class="secondary" id="failed-toggle" type="button">查看</button>
+      <div id="failed-panel" hidden>
+        <ul id="failed-list"></ul>
+        <button class="secondary" id="failed-clear" type="button">清除失败记录</button>
+      </div>
+    </div>
+    <div class="toast" id="toast"></div>
+    <hr />
     <textarea id="note" placeholder="记一条学习备注…"></textarea>
-    <button id="add-note">保存备注</button>
-    <p id="status"></p>
+    <button id="add-note" class="secondary">保存备注</button>
+    <details id="settings">
+      <summary>连接设置</summary>
+      <input id="url" placeholder="本地服务地址" value="http://127.0.0.1:43118" />
+      <input id="token" placeholder="配对令牌" />
+      <button id="save" class="secondary">保存连接</button>
+    </details>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

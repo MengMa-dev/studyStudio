@@ -7,7 +7,7 @@
     "build:extension": "node scripts/build-extension.js",
     "ingestion": "tsx services/local-ingestion/src/server.js",
     "demo": "node scripts/demo-ingestion.js",
-    "e2e:extension": "node scripts/e2e-extension.js",
+    "e2e:extension": "tsx scripts/e2e-extension.js",
     "browser:login": "node scripts/browser-login.js",
     "setup:ai": "node scripts/setup-dev-ai.js",
     "typecheck": "tsc -p . && npm run typecheck --workspaces --if-present",
