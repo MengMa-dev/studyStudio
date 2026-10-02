@@ -97,9 +97,10 @@ try {
     return page;
   };
 
-  await check("article: dev threshold capture through background → service", async () => {
+  await check("article: capture through background → service", async () => {
     const url = "https://blog.example.com/posts/retrieval-reranking";
-    await open(url);
+    const page = await open(url);
+    await page.evaluate(() => document.dispatchEvent(new Event("copy")));
     const entry = await waitFor("webpage_captured", findEntry("webpage_captured", url));
     const markdown = await readFile(join(dataDir, entry.artifact!, "content.md"), "utf8");
     if (!/```js\nconst candidates = await index\.search/.test(markdown)) throw new Error("code block missing from captured markdown");
