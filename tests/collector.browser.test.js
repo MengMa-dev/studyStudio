@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "esbuild";
-import { createIngestionServer } from "../services/local-ingestion/src/ingestion-server.js";
+import { createIngestionServer } from "../services/local-ingestion/src/create-server.js";
 import { createLocalIngestionClient } from "../apps/desktop/local-ingestion-client.js";
 
 const root = join(import.meta.dirname, "..");

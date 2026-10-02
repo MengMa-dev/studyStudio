@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:extension": "node scripts/build-extension.js",
-    "ingestion": "tsx services/local-ingestion/src/server.js",
+    "ingestion": "tsx services/local-ingestion/src/server.ts",
     "demo": "node scripts/demo-ingestion.js",
     "e2e:extension": "node scripts/e2e-extension.js",
     "browser:login": "node scripts/browser-login.js",

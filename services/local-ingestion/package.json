@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/create-server.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
   "dependencies": {
     "@ai-sdk/google": "^4.0.87",
     "@ai-sdk/openai-compatible": "^3.0.62",
