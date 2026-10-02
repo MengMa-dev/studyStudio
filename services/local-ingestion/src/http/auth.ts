@@ -92,15 +92,13 @@ export function requireSameOrigin(getPort: () => number): MiddlewareHandler {
       await next();
       return;
     }
-    const origin = c.req.header("origin");
-    if (!origin) {
-      // Non-browser clients (extension) typically omit Origin; Bearer auth already applied.
-      if (bearerToken(c)) {
-        await next();
-        return;
-      }
-      return c.json({ error: "missing_origin" }, 403);
+    // Bearer requests (extension sends Origin: chrome-extension://…) are already token-checked and cannot be forged cross-site.
+    if (bearerToken(c)) {
+      await next();
+      return;
     }
+    const origin = c.req.header("origin");
+    if (!origin) return c.json({ error: "missing_origin" }, 403);
     const port = getPort();
     const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, `http://[::1]:${port}`]);
     if (!allowed.has(origin)) return c.json({ error: "invalid_origin" }, 403);

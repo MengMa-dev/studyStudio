@@ -7,7 +7,7 @@ import { openDatabase } from "../src/db/database.js";
 import { startScheduler } from "../src/jobs/scheduler.js";
 import { purgeExpiredActivityEvents } from "../src/domains/data/cleanup.js";
 
-test("database migrates 001_init and loads without search tables", async (t) => {
+test("database applies 001_init and 002_search in order", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "study-studio-db-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const app = openDatabase({ dataDir, skipVector: true });
@@ -19,8 +19,10 @@ test("database migrates 001_init and loads without search tables", async (t) => 
   assert.ok(tables.includes("item_exposure"));
   assert.ok(tables.includes("schema_migrations"));
   assert.ok(!tables.includes("chat_messages"));
-  assert.ok(!tables.includes("chunks"));
-  assert.equal((app.db.prepare("SELECT version FROM schema_migrations").get() as { version: number }).version, 1);
+  assert.ok(tables.includes("chunks"));
+  assert.ok(!tables.includes("chunks_vec"), "vec0 table is created by code after loading sqlite-vec");
+  const versions = (app.db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((row) => row.version);
+  assert.deepEqual(versions, [1, 2]);
 });
 
 test("scheduler backup creates a VACUUM INTO file", async (t) => {

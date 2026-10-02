@@ -154,6 +154,14 @@ test("Host and Origin guards", async (t) => {
     body: JSON.stringify({ activityTracking: { retentionDays: 21 } })
   });
   assert.equal(withBearer.status, 200);
+
+  // MV3 service workers send Origin: chrome-extension://<id> on writes.
+  const extensionOrigin = await service.call("/v1/settings", {
+    method: "PUT",
+    headers: { origin: "chrome-extension://abcdefghijklmnopabcdefghijklmnop" },
+    body: JSON.stringify({ activityTracking: { retentionDays: 14 } })
+  });
+  assert.equal(extensionOrigin.status, 200);
 });
 
 test("exclusion rules ignore matching events on ingest", async (t) => {

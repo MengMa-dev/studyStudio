@@ -4,7 +4,7 @@
  * Usage: npm run verify:wxt [-- --headed] [--skip-build]
  */
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
@@ -22,10 +22,10 @@ const fixtures: Record<string, string> = {
   "https://chatgpt.com/c/verify": "chatgpt.html"
 };
 
-type TimelineEntry = { type: string; source: { url?: string }; artifact?: string; reason?: string };
+type StoredEvent = { reason?: string; artifact?: string };
 
 if (!process.argv.includes("--skip-build")) {
-  const build = spawnSync("npx", ["wxt", "build"], { cwd: extensionDir, env: { ...process.env, STUDY_STUDIO_DEV: "1" }, stdio: "inherit" });
+  const build = spawnSync("npx", ["wxt", "build"], { cwd: extensionDir, stdio: "inherit" });
   if (build.status !== 0) throw new Error("wxt build failed");
 }
 
@@ -35,16 +35,21 @@ const ingestion = await createIngestionServer({ dataDir, pairingToken: token });
 const port: number = await ingestion.listen(0);
 let context: BrowserContext | null = null;
 
-async function timeline(): Promise<TimelineEntry[]> {
-  const dir = join(dataDir, "timeline");
-  const files = await readdir(dir).catch(() => []);
-  const lines = await Promise.all(files.map((file) => readFile(join(dir, file), "utf8")));
-  return lines.flatMap((text) =>
-    text
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as TimelineEntry)
-  );
+const debugPreset = await fetch(`http://127.0.0.1:${port}/v1/settings`, {
+  method: "PUT",
+  headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+  body: JSON.stringify({ captureRules: { preset: "debug" } })
+});
+if (!debugPreset.ok) throw new Error(`PUT /v1/settings failed: ${debugPreset.status}`);
+
+const artifactDirs: Record<string, string> = { webpage_captured: "inbox/webpages/page-", assistant_response_completed: "inbox/conversations/qa-" };
+
+function storedEvent(type: string, url: string): StoredEvent | undefined {
+  const row = ingestion.db.db.prepare("SELECT payload, item_id FROM events WHERE type = ? AND url = ? ORDER BY received_at DESC LIMIT 1").get(type, url) as
+    { payload: string; item_id: string | null } | undefined;
+  if (!row) return undefined;
+  const prefix = artifactDirs[type];
+  return { ...(JSON.parse(row.payload) as { reason?: string }), artifact: prefix && row.item_id ? `${prefix}${row.item_id}` : undefined };
 }
 
 async function waitFor<T>(label: string, probe: () => Promise<T | undefined>, timeoutMs = 20_000): Promise<T> {
@@ -57,7 +62,7 @@ async function waitFor<T>(label: string, probe: () => Promise<T | undefined>, ti
   throw new Error(`timed out waiting for ${label}`);
 }
 
-const findEntry = (type: string, url: string) => async () => (await timeline()).find((entry) => entry.type === type && entry.source.url === url);
+const findEntry = (type: string, url: string) => async () => storedEvent(type, url);
 
 const checks: { name: string; ok: boolean; detail: string }[] = [];
 async function check(name: string, run: () => Promise<string>) {
@@ -82,13 +87,15 @@ try {
     return route.fulfill({ status: 204, body: "" });
   });
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
-  await worker.evaluate(
-    ([ingestionUrl, pairingToken]) => {
-      const { chrome } = globalThis as unknown as { chrome: { storage: { local: { set(items: object): Promise<void> } } } };
-      return chrome.storage.local.set({ ingestionUrl, pairingToken });
-    },
-    [`http://127.0.0.1:${port}`, token] as const
-  );
+  type Hooks = { __studyStudio?: { saveConnection(url: string, token: string): Promise<{ connectivity?: { state?: string } }> } };
+  await waitFor("extension test hooks", () => worker.evaluate(() => Boolean((globalThis as Hooks).__studyStudio)));
+  const connected = await worker.evaluate(([ingestionUrl, pairingToken]) => (globalThis as Hooks).__studyStudio!.saveConnection(ingestionUrl, pairingToken), [
+    `http://127.0.0.1:${port}`,
+    token
+  ] as const);
+  if (JSON.stringify(connected).includes('"offline"') || JSON.stringify(connected).includes('"unauthorized"')) {
+    throw new Error(`extension could not connect: ${JSON.stringify(connected)}`);
+  }
 
   const open = async (url: string): Promise<Page> => {
     const page = await context!.newPage();
@@ -133,6 +140,13 @@ try {
     const markdown = await readFile(join(dataDir, answer.artifact!, "answer.md"), "utf8");
     return `answer: ${markdown.trim()}`;
   });
+
+  if (checks.some((item) => !item.ok)) {
+    const status = await worker.evaluate(() => (globalThis as { __studyStudio?: { status(): Promise<unknown> } }).__studyStudio?.status());
+    const events = ingestion.db.db.prepare("SELECT type, url FROM events").all();
+    console.log("extension status:", JSON.stringify(status));
+    console.log("server events:", JSON.stringify(events));
+  }
 } finally {
   await context?.close();
   await ingestion.close();
