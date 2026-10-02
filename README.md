@@ -15,6 +15,8 @@ npm run ingestion
 STUDY_STUDIO_TOKEN=<令牌> npm run demo
 ```
 
+开发环境 AI 配置：`npm run setup:ai` 读取仓库上级目录的 `.api.txt`（或 `STUDY_STUDIO_KEYS_FILE`），把 key 写入 `StudyStudioData/secrets.json`（不进仓库）并验证各服务商，模型选择见 `docs/tech-solution/06-ai-gateway.md`。
+
 演示会模拟“用户提问 → AI 回答完成”和“网页达到学习门槛”，并将结果写入 `./StudyStudioData`。可用 `STUDY_STUDIO_TOKEN`、`STUDY_STUDIO_DATA_DIR` 和 `STUDY_STUDIO_PORT` 覆盖默认配置。
 
 调试时可用 `STUDY_STUDIO_DEV=1` 降低门槛：页面可见 5 秒即入箱（不要求滚动），已入箱页面再次停留 3 秒即累加时长。需同时作用于构建和服务：`STUDY_STUDIO_DEV=1 npm run build:extension` 后重新加载扩展，并用 `STUDY_STUDIO_DEV=1 npm run ingestion` 启动服务。

@@ -135,7 +135,7 @@ CREATE TABLE chat_messages (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, con
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
 CREATE TABLE rules (id TEXT PRIMARY KEY, kind TEXT, value TEXT, note TEXT, created_at TEXT);
 CREATE TABLE providers (id TEXT PRIMARY KEY, name TEXT, type TEXT, base_url TEXT, default_model TEXT, status TEXT, checked_at TEXT);
-CREATE TABLE task_models (task TEXT PRIMARY KEY, provider_id TEXT, model TEXT);
+CREATE TABLE task_models (task TEXT PRIMARY KEY, provider_id TEXT, model TEXT, fallback_provider_id TEXT, fallback_model TEXT);
 CREATE TABLE usage_daily (day TEXT, task TEXT, provider_id TEXT, calls INTEGER, input_tokens INTEGER, output_tokens INTEGER, PRIMARY KEY (day, task, provider_id));
 CREATE TABLE trash (id TEXT PRIMARY KEY, kind TEXT, target_ids TEXT, snapshot TEXT, deleted_at TEXT, expires_at TEXT);
 

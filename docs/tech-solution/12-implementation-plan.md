@@ -74,8 +74,8 @@ M0 → M1 → ┬─ M2 扩展 ──────────────┐
 - npm workspaces、TS 配置、lint/format、`npm run check` / `npm test` 统一入口。
 - `packages/shared` 建立，先放事件与设置 schema。
 - 技术验证（不通过则在本里程碑内换方案，见「风险」）：
-  - `node:sqlite` + FTS5（`unicode61` / `trigram`）+ `loadExtension` 加载 sqlite-vec；
-  - AI SDK `generateObject` + Zod discriminated union，分别对 DeepSeek（OpenAI 兼容）与 Ollama 小模型实测结构化输出；
+  - `node:sqlite` + FTS5（`unicode61` / `trigram`）+ `loadExtension` 加载 sqlite-vec（2026-10-03 已验证：sqlite-vec v0.1.9 加载、trigram 匹配、vec0 KNN 均正常）；
+  - AI SDK `generateObject` + Zod discriminated union，按 06「模型选择」对 Ollama `qwen2.5:7b`、Gemini、OpenRouter、Groq 实测结构化输出；
   - WXT 打包 `collector-runtime`，content script 正常采集现有 fixtures。
 
 验收：三项验证有可运行的最小脚本；现有测试通过。
@@ -121,7 +121,7 @@ M0 → M1 → ┬─ M2 扩展 ──────────────┐
 - 检索基础：`Intl.Segmenter` 预分词 + FTS5（trigram 兜底）、sqlite-vec、`chunks` 索引后台任务、「重建索引」。
 - 设置页「AI 模型」分区。
 
-验收：DeepSeek 与 Ollama 各配置一个服务商并测试连接通过；超出每日上限时调用被拦截；词条摘要与正文能被向量和关键词检索到。
+验收：从 `ai-seed.json` 导入 Ollama、Gemini、OpenRouter、Groq 四个服务商并测试连接通过；主模型失败时切到备用模型；超出每日上限时调用被拦截；词条摘要与正文能被向量和关键词检索到。
 
 ### M5 整理流水线（07）
 

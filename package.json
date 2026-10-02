@@ -10,7 +10,8 @@
     "e2e:extension": "node scripts/e2e-extension.js",
     "browser:login": "node scripts/browser-login.js",
     "test": "node --test \"tests/**/*.test.js\"",
-    "check": "node --check services/local-ingestion/src/server.js && node --check services/local-ingestion/src/ingestion-server.js && node --check packages/collector-runtime/src/browser-collector.js && node --check apps/browser-extension/content.js && node --check apps/browser-extension/background.js"
+    "check": "node --check services/local-ingestion/src/server.js && node --check services/local-ingestion/src/ingestion-server.js && node --check packages/collector-runtime/src/browser-collector.js && node --check apps/browser-extension/content.js && node --check apps/browser-extension/background.js",
+    "setup:ai": "node scripts/setup-dev-ai.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -20,6 +21,23 @@
     "turndown": "^7.2.4"
   },
   "devDependencies": {
-    "playwright-core": "^1.63.0"
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.4",
+    "eslint": "^10.11.0",
+    "playwright-core": "^1.63.0",
+    "prettier": "^3.9.9",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.0"
+  },
+  "workspaces": [
+    "apps/workbench",
+    "apps/browser-extension",
+    "packages/shared",
+    "services/local-ingestion"
+  ],
+  "engines": {
+    "node": ">=22.13"
   }
 }
