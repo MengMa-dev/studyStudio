@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Understanding Vector Retrieval and Reranking | Example Blog</title>
+  <meta property="og:title" content="Understanding Vector Retrieval and Reranking">
+  <link rel="canonical" href="https://blog.example.com/posts/retrieval-reranking">
+</head>
+<body>
+  <header><nav><a href="/">Home</a> <a href="/about">About</a> <a href="/subscribe">NAVIGATION-SUBSCRIBE</a></nav></header>
+  <main>
+    <article>
+      <h1>Understanding Vector Retrieval and Reranking</h1>
+      <p>Retrieval augmented generation systems usually split the search problem into two stages. The first stage, vector retrieval, quickly narrows millions of documents down to a few hundred candidates using approximate nearest neighbour search over embeddings.</p>
+      <p>The second stage, reranking, spends far more compute per candidate. A cross-encoder reads the query and each candidate together and produces a precise relevance score, which is then used to reorder the shortlist before it is handed to the language model.</p>
+      <h2>A minimal pipeline</h2>
+      <p>The following snippet shows the two stages wired together. Notice that the reranker only ever sees the shortlist produced by the retriever, which keeps latency predictable.</p>
+      <pre><code class="language-js">const candidates = await index.search(embed(query), { topK: 200 });
+const ranked = await reranker.score(query, candidates);
+return ranked.slice(0, 5);</code></pre>
+      <h2>Trade-offs</h2>
+      <table>
+        <thead><tr><th>Stage</th><th>Latency</th><th>Precision</th></tr></thead>
+        <tbody>
+          <tr><td>Retrieval</td><td>Low</td><td>Medium</td></tr>
+          <tr><td>Reranking</td><td>High</td><td>High</td></tr>
+        </tbody>
+      </table>
+      <p>In practice the best results come from tuning both stages together: a retriever with high recall gives the reranker something worth reordering, and a strong reranker lets you keep the retriever cheap.</p>
+      <p><img src="/images/pipeline.png" alt="Two stage pipeline diagram"></p>
+      <p>Further reading: <a href="https://example.org/cross-encoders">cross-encoder primer</a>.</p>
+    </article>
+  </main>
+  <footer>Copyright Example Blog. FOOTER-LEGAL-TEXT</footer>
+</body>
+</html>

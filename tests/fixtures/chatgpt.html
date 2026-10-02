@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>ChatGPT</title></head>
+<body>
+  <main>
+    <div id="thread">
+      <article><div data-message-author-role="user"><div class="whitespace-pre-wrap">An old question from history</div></div></article>
+      <article><div data-message-author-role="assistant"><div class="markdown"><p>An old answer from history that must not be backfilled.</p></div></div></article>
+    </div>
+    <form id="composer-form">
+      <textarea id="prompt-textarea"></textarea>
+      <div id="composer-actions"><button type="button" data-testid="send-button" aria-label="Send prompt">↑</button></div>
+    </form>
+  </main>
+  <script>
+    window.fixture = {
+      appendTurn(question) {
+        const thread = document.getElementById("thread");
+        thread.insertAdjacentHTML("beforeend", `<article><div data-message-author-role="user"><div class="whitespace-pre-wrap"></div></div></article>`);
+        thread.lastElementChild.querySelector(".whitespace-pre-wrap").textContent = question;
+        thread.insertAdjacentHTML("beforeend", `<article><div data-message-author-role="assistant"><div class="markdown"></div></div></article>`);
+        document.getElementById("prompt-textarea").value = "";
+        document.getElementById("composer-actions").innerHTML = `<button type="button" data-testid="stop-button" aria-label="Stop streaming">■</button>`;
+      },
+      stream(html) {
+        document.querySelector("#thread article:last-child .markdown").innerHTML = html;
+      },
+      finish() {
+        document.getElementById("composer-actions").innerHTML = `<button type="button" data-testid="send-button" aria-label="Send prompt">↑</button>`;
+      }
+    };
+  </script>
+</body>
+</html>

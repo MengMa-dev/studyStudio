@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>ChatGPT</title></head>
+<body>
+  <main>
+    <ol aria-label="对话" data-conversation-transcript="">
+      <li data-message-role="user" id="u-old"><h4 data-message-attribution="">你说：</h4><div><button data-user-message-bubble="" type="button"><p data-user-message-copy="">历史问题</p></button></div></li>
+      <li data-message-role="assistant" id="a-old" data-assistant-content-started="" data-message-complete=""><h4 data-message-attribution="">ChatGPT 说：</h4><div><div data-assistant-markdown=""><p>历史回答，不应被回补。</p></div></div></li>
+    </ol>
+    <div data-composer-dock="">
+      <textarea aria-label="与 ChatGPT 聊天" id="mobile-composer-prompt" name="prompt" data-mobile-composer-prompt="" rows="1"></textarea>
+      <button type="button" data-composer-submit="" aria-label="发送消息"></button>
+    </div>
+  </main>
+  <script>
+    const transcript = document.querySelector("[data-conversation-transcript]");
+    const submit = document.querySelector("[data-composer-submit]");
+    function send() {
+      const input = document.querySelector("textarea[name='prompt']");
+      transcript.insertAdjacentHTML("beforeend", `<li data-message-role="user"><h4 data-message-attribution="">你说：</h4><div><button data-user-message-bubble="" type="button"><p data-user-message-copy=""></p></button></div></li>`);
+      transcript.lastElementChild.querySelector("[data-user-message-copy]").textContent = input.value;
+      input.value = "";
+      transcript.insertAdjacentHTML("beforeend", `<li data-message-role="assistant"><h4 data-message-attribution="">ChatGPT 说：</h4><div><span aria-hidden="true" data-assistant-placeholder-slot=""><span></span></span><div><div data-assistant-markdown=""></div></div></div></li>`);
+      submit.setAttribute("aria-label", "停止生成");
+    }
+    document.querySelector("textarea[name='prompt']").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); }
+    });
+    window.fixture = {
+      stream(html) { transcript.querySelector("li:last-child [data-assistant-markdown]").innerHTML = html; },
+      finish() {
+        transcript.lastElementChild.setAttribute("data-message-complete", "");
+        submit.setAttribute("aria-label", "发送消息");
+      }
+    };
+  </script>
+</body>
+</html>

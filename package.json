@@ -1,0 +1,25 @@
+{
+  "name": "study-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:extension": "node scripts/build-extension.js",
+    "ingestion": "node services/local-ingestion/src/server.js",
+    "demo": "node scripts/demo-ingestion.js",
+    "e2e:extension": "node scripts/e2e-extension.js",
+    "browser:login": "node scripts/browser-login.js",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "check": "node --check services/local-ingestion/src/server.js && node --check services/local-ingestion/src/ingestion-server.js && node --check packages/collector-runtime/src/browser-collector.js && node --check apps/browser-extension/content.js && node --check apps/browser-extension/background.js"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "defuddle": "^0.19.4",
+    "dompurify": "^3.4.16",
+    "esbuild": "^0.28.2",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

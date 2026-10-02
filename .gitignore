@@ -1,0 +1,13 @@
+node_modules/
+StudyStudioData/
+.browser-profile/
+apps/desktop/dist/
+dist/
+.output/
+.wxt/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+secrets.json

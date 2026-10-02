@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>DeepSeek - 探索未至之境</title></head>
+<body>
+  <div id="root">
+    <div class="ds-virtual-list-items" id="list">
+      <div data-virtual-list-item-key="-2"><div class="d29f3d7d ds-message _63c77b1"><div class="ds-collapsible-text">历史问题</div></div></div>
+      <div data-virtual-list-item-key="2"><div class="ds-message _63c77b1"><div class="ds-markdown ds-assistant-message-main-content"><p class="ds-markdown-paragraph">历史回答，不应被回补。</p></div></div></div>
+    </div>
+    <div class="composer" style="display:flex;gap:8px;padding:12px">
+      <textarea name="search" placeholder="给 DeepSeek 发送消息 " rows="2" autocomplete="off" style="flex:1;min-height:40px"></textarea>
+      <div role="button" class="ds-button ds-button--primary ds-button--filled ds-button--circle ds-button--m" id="send" tabindex="0" style="width:34px;height:34px;background:#4d6bfe"></div>
+    </div>
+  </div>
+  <script>
+    const list = document.getElementById("list");
+    const send = document.getElementById("send");
+    function submit() {
+      const input = document.querySelector("textarea[name='search']");
+      const question = input.value;
+      input.value = "";
+      // Reproduce the live race: mount user + an assistant shell without markdown first.
+      // The shell used to be misclassified as a second user message.
+      list.insertAdjacentHTML("beforeend", `<div data-virtual-list-item-key="u-new"><div class="d29f3d7d ds-message"><div class="ds-collapsible-text"></div></div></div>`);
+      list.lastElementChild.querySelector(".ds-collapsible-text").textContent = question;
+      list.insertAdjacentHTML("beforeend", `<div data-virtual-list-item-key="a-new"><div class="ds-message" id="assistant-shell"></div></div>`);
+      send.setAttribute("aria-label", "停止生成");
+    }
+    send.addEventListener("click", submit);
+    document.querySelector("textarea[name='search']").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
+    });
+    window.fixture = {
+      think(text) {
+        const shell = document.getElementById("assistant-shell");
+        if (!shell.querySelector(".ds-think-content")) shell.insertAdjacentHTML("afterbegin", `<div class="ds-think-content"><div class="ds-markdown"></div></div>`);
+        shell.querySelector(".ds-think-content .ds-markdown").textContent = text;
+      },
+      stream(html) {
+        const shell = document.getElementById("assistant-shell");
+        if (!shell.querySelector(".ds-assistant-message-main-content")) {
+          shell.insertAdjacentHTML("beforeend", `<div class="ds-markdown ds-assistant-message-main-content answer"></div>`);
+        }
+        shell.querySelector(".answer").innerHTML = html;
+      },
+      finish() {
+        send.removeAttribute("aria-label");
+      }
+    };
+  </script>
+</body>
+</html>

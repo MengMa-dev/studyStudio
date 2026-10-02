@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study Studio 工作台 · 原型</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-logo">S</div>Study Studio</div>
+      <nav id="nav"></nav>
+      <div class="sidebar-bottom">
+        <div id="nav-bottom"></div>
+        <div class="sidebar-footer">
+          <div><span class="dot"></span>本地服务运行中</div>
+          <div><span class="dot"></span>扩展已连接 · 1 分钟前</div>
+          <div class="proto-note">原型 · 假数据，仅用于验证交互</div>
+        </div>
+      </div>
+    </aside>
+    <main class="main" id="main"></main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>交叉编码器和双塔模型应该怎么选？ - 知乎</title>
+</head>
+<body>
+  <main role="main">
+    <div class="QuestionHeader"><h1 class="QuestionHeader-title">交叉编码器和双塔模型应该怎么选？</h1></div>
+    <div class="AnswerItem">
+      <div class="RichContent-inner">
+        <p>双塔模型把查询和文档分别编码成向量，文档向量可以离线批量计算并写入向量索引，线上只需要编码一次查询，再做近似最近邻检索，因此非常适合作为召回阶段，从百万级文档中快速筛出几百条候选。</p>
+        <p>交叉编码器则把查询和文档拼接在一起送进同一个模型，注意力可以在两者之间充分交互，打分精度明显更高，但每个候选都要完整前向一次，计算量随候选数线性增长，所以通常只用在重排阶段，对召回结果做精排。</p>
+        <p>实践中最常见的组合是：双塔负责高召回率的粗筛，交叉编码器负责高精度的精排，两者分工明确，既控制了延迟，又保证了最终结果的质量。</p>
+      </div>
+      <div class="ContentItem-actions">赞同 2210 · 96 条评论</div>
+    </div>
+  </main>
+</body>
+</html>
