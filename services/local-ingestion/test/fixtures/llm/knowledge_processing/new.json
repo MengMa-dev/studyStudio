@@ -1,0 +1,94 @@
+{
+  "task": "knowledge_processing",
+  "promptVersion": "knowledge_processing@1",
+  "inputHash": "28ed517d64f665171bec31f9755de23dc97600601b7f56bdfe8903003ada8d2a",
+  "provider": "openrouter",
+  "model": "nvidia/nemotron-3-super-120b-a12b:free",
+  "input": {
+    "mode": "normal",
+    "episode": { "episode_id": "ep_20261002_2130", "topic": "MCP", "learning_goal": "了解 Model Context Protocol 的定位与架构", "uncertain": false },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_mcp_intro",
+      "type": "webpage",
+      "source_kind": "official_doc",
+      "title": "Introduction - Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/introduction",
+      "content": "## What is MCP? [露出:高]\nMCP (Model Context Protocol) is an open protocol that standardizes how applications provide context to LLMs. Think of MCP like a USB-C port for AI applications: just as USB-C provides a standardized way to connect devices to peripherals, MCP provides a standardized way to connect AI models to different data sources and tools.\n## Why MCP? [露出:高]\nMCP helps you build agents and complex workflows on top of LLMs. It provides a growing list of pre-built integrations your LLM can directly plug into, the flexibility to switch between LLM providers, and best practices for securing your data within your infrastructure.\n## General architecture [露出:高]\nMCP follows a client-server architecture where a host application can connect to multiple servers. MCP Hosts are programs like Claude Desktop or IDEs that want to access data through MCP. MCP Clients maintain 1:1 connections with servers. MCP Servers are lightweight programs that each expose specific capabilities (resources, tools, prompts) through the standardized protocol.\n## Get started [露出:低]\nChoose the path that best fits your needs: quickstart for server developers, client developers, or Claude Desktop users.",
+      "user_highlights": [],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "medium"
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_function_calling",
+        "name": "Function Calling",
+        "aliases": ["工具调用", "tool use"],
+        "kind": "concept",
+        "summary": "模型按 JSON Schema 输出函数名与参数，由程序执行函数并把结果返回给模型。",
+        "similarity": 0.63,
+        "recency_relevance": 0.55,
+        "outline": ["## 定义", "## 流程"],
+        "body_markdown": "## 定义\n模型按开发者声明的 JSON Schema 输出要调用的函数名与参数。\n## 流程\n声明工具 → 模型返回调用请求 → 程序执行 → 结果回传模型。"
+      }
+    ],
+    "neighbor_entries": [{ "entry_id": "kb_agent_loop", "name": "Agent Loop", "aliases": ["智能体循环"] }],
+    "ignored_names": [],
+    "categories": ["Agent 框架", "RAG", "前端工程", "LLM 基础"]
+  },
+  "output": {
+    "item_id": "item_mcp_intro",
+    "value_score": 0.78,
+    "reason": "知识库中尚未存在 Model Context Protocol（MCP）的词条，条目提供了 MCP 的定义、目的及客户端‑服务器架构等核心概念，具备较高的解释性和复用价值，故应新建词条。",
+    "decision": "new",
+    "item_summary": "MCP（Model Context Protocol）是一种开放协议，用于标准化应用向大型语言模型提供上下文，类似于 USB‑C 对 AI 应用的统一接口，使得 LLMs 能够统一接入各种数据源和工具。",
+    "item_points": [
+      "MCP 定义为开放协议，标准化应用向 LLMs 提供上下文。",
+      "其核心目标是构建 Agents 和复杂工作流，提供预建集成、跨供应商切换以及数据安全最佳实践。",
+      "MCP 采用客户端‑服务器架构：Host（如 Claude Desktop、IDE）连接多个 Server，Server 轻量并通过统一协议暴露资源、工具、提示。",
+      "入门指南提供了服务器开发者、客户端开发者以及 Claude Desktop 用户三种快速开始路径。",
+      "MCP 与 Function Calling 等工具调用机制互补，均旨在让 LLMs 访问外部能力。"
+    ],
+    "concepts": [
+      {
+        "name": "Model Context Protocol",
+        "match": "new",
+        "aliases": [],
+        "kind": "concept",
+        "evidence": [
+          {
+            "quote": "MCP (Model Context Protocol) is an open protocol that standardizes how applications provide context to LLMs.",
+            "question": null,
+            "turn_item_id": null
+          },
+          {
+            "quote": "MCP helps you build agents and complex workflows on top of LLMs. It provides a growing list of pre-built integrations your LLM can directly plug into, the flexibility to switch between LLM providers, and best practices for securing your data within your infrastructure.",
+            "question": null,
+            "turn_item_id": null
+          },
+          {
+            "quote": "MCP follows a client-server architecture where a host application can connect to multiple servers. MCP Hosts are programs like Claude Desktop or IDEs that want to access data through MCP. MCP Clients maintain 1:1 connections with servers. MCP Servers are lightweight programs that each expose specific capabilities (resources, tools, prompts) through the standardized protocol.",
+            "question": null,
+            "turn_item_id": null
+          }
+        ],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "MCP 是一种开放协议，标准化应用向大型语言模型提供上下文，使得 LLMs 能够统一接入各种数据源和工具，从而支持 Agent 构建和复杂工作流。",
+        "body_markdown": "## 定义\nMCP (Model Context Protocol) 是一种开放协议，用于标准化应用向 LLMs 提供上下文。\n\n## 目的与价值\nMCP 有助于构建 Agents 和复杂工作流，提供预建集成、跨 LLMs 供应商切换的灵活性以及数据安全的最佳实践。\n\n## 架构\nMCP 采用客户端‑服务器模型：\n- **MCP Host**：如 Claude Desktop、IDE，希望通过 MCP 访问数据的程序。\n- **MCP Client**：与 Server 保持 1:1 连接。\n- **MCP Server**：轻量程序，通过统一协议暴露资源、工具、提示等具体能力。\n\n## 入门\n根据自身需求选择适合的快速开始路径：服务器开发者、客户端开发者或 Claude Desktop 用户。\n\n## 与其他机制的关系\nMCP 与 Function Calling（工具调用）互补，均旨在让 LLMs 访问外部能力，可在同一 Agent 中协同使用。",
+        "completeness": {
+          "covered": ["定义、目的、核心价值", "客户端‑服务器架构及角色说明", "基本入门路径"],
+          "missing": ["详细的安全实施细节", "服务器/客户端的具体实现示例（代码、库）", "预建集成的完整列表与使用示例", "性能基准及扩展性讨论"]
+        }
+      }
+    ],
+    "relations": [
+      { "from": "Model Context Protocol", "to": "Function Calling", "type": "related", "description": null },
+      { "from": "Model Context Protocol", "to": "Agent Loop", "type": "related", "description": null }
+    ]
+  },
+  "usage": { "inputTokens": 2228, "outputTokens": 2229, "totalTokens": 4457, "durationMs": 17840 },
+  "recordedAt": "2026-10-02T19:50:42.104Z"
+}

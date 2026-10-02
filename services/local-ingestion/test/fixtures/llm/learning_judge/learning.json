@@ -1,0 +1,74 @@
+{
+  "task": "learning_judge",
+  "promptVersion": "learning_judge@1",
+  "inputHash": "982dc78224260dc8d215c045d938e0517f7f836e7ccb6c79db6b12d0d4ce25fa",
+  "provider": "ollama",
+  "model": "qwen2.5:7b",
+  "input": {
+    "episode_id": "ep_20261002_2000",
+    "time_range": { "start": "2026-10-02T20:00:00+08:00", "end": "2026-10-02T20:40:00+08:00" },
+    "active_minutes": 36,
+    "learner_profile": { "role": "前端开发", "learning_focus": [{ "topic": "Agent 架构", "expires_at": "2026-11-01" }] },
+    "recent_kb_topics": ["LangGraph", "RAG 重排", "Function Calling"],
+    "timeline": [
+      { "t": "20:00", "kind": "search", "query": "LangGraph checkpoint", "engine": "google" },
+      {
+        "t": "20:02",
+        "kind": "page",
+        "title": "Persistence - LangGraph Docs",
+        "domain": "langchain-ai.github.io",
+        "category": "learning_candidate",
+        "active_sec": 420,
+        "scroll": 0.8,
+        "captured_item_id": "item_A",
+        "from": "search"
+      },
+      {
+        "t": "20:10",
+        "kind": "ai_turn",
+        "platform": "chatgpt",
+        "conversation_id": "c1",
+        "question": "checkpoint 和 interrupt 有什么区别？",
+        "turn_index": 1,
+        "captured_item_id": "item_B"
+      },
+      { "t": "20:13", "kind": "ai_turn", "platform": "chatgpt", "conversation_id": "c1", "question": "interrupt 恢复时状态从哪里读？", "turn_index": 2 },
+      {
+        "t": "20:18",
+        "kind": "page",
+        "title": "Human-in-the-loop - LangGraph Docs",
+        "domain": "langchain-ai.github.io",
+        "category": "learning_candidate",
+        "active_sec": 600,
+        "scroll": 0.9,
+        "captured_item_id": "item_C",
+        "revisit": false
+      },
+      { "t": "20:26", "kind": "selection", "text": "interrupt() pauses graph execution...", "captured_item_id": "item_C" },
+      { "t": "20:35", "kind": "note", "text": "HITL 依赖 checkpoint 持久化", "captured_item_id": "item_C" }
+    ],
+    "flags": []
+  },
+  "output": {
+    "episode_id": "ep_20261002_2000",
+    "is_learning": true,
+    "confidence": 0.95,
+    "topic": "Agent 架构下的 LangGraph 持久化与 Human-in-the-loop 机制",
+    "learning_goal": "理解 LangGraph 的 checkpoint 和 interrupt 机制及其关系",
+    "related_exploration": ["LangGraph", "checkpoint", "interrupt", "Human-in-the-loop"],
+    "distractions": [],
+    "returned_to_topic": null,
+    "signals_observed": ["active_search", "ai_multi_turn", "note", "highlight", "revisit"],
+    "segment_suggestion": { "action": "keep", "at": "2026-10-02T20:00:00+08:00", "with_episode_id": "ep_20261002_2000" },
+    "worth_extracting": true,
+    "candidate_item_ids": ["item_A", "item_B", "item_C"],
+    "item_engagement": [
+      { "item_id": "item_A", "engagement": "medium" },
+      { "item_id": "item_B", "engagement": "weak" },
+      { "item_id": "item_C", "engagement": "strong" }
+    ],
+    "reason": "用户主动搜索并提问关于 LangGraph 的持久化机制，进行多次追问、标注关键信息并做笔记，符合学习行为。"
+  },
+  "usage": { "inputTokens": 1384, "outputTokens": 368, "totalTokens": 1752, "durationMs": 250720 },
+  "recordedAt": "2026-10-02T19:17:32.973Z"
+}

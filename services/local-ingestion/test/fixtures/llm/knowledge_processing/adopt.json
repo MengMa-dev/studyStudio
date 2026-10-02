@@ -1,0 +1,98 @@
+{
+  "task": "knowledge_processing",
+  "promptVersion": "knowledge_processing@1",
+  "inputHash": "cac264df2c2641924d4f7101d5ee1a1a357e56955e9f684d40a58d07ac82db3c",
+  "provider": "openrouter",
+  "model": "nvidia/nemotron-3-super-120b-a12b:free",
+  "input": {
+    "mode": "adopt",
+    "episode": null,
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_react_post",
+      "type": "webpage",
+      "source_kind": "community",
+      "title": "一句话理解 ReAct",
+      "url": "https://v2ex.example/t/react-agent",
+      "content": "## 正文 [露出:高]\nReAct = Reason + Act。让模型交替输出 Thought / Action / Observation：先想一步，再调用工具，看到结果后再想下一步。相比只做 CoT，推理过程能拿到外部信息，幻觉更少。出处：Yao et al. 2022《ReAct: Synergizing Reasoning and Acting in Language Models》。",
+      "user_highlights": [],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "strong"
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_agent_loop",
+        "name": "Agent Loop",
+        "aliases": ["智能体循环"],
+        "kind": "pattern",
+        "summary": "LLM 在循环中根据观察结果决定下一步动作（调用工具或结束），直到完成任务。",
+        "outline": ["## 定义", "## 基本流程"],
+        "body_markdown": "## 定义\nLLM 在循环中根据上一步的观察结果决定下一步动作，直到完成任务或达到步数上限。\n## 基本流程\n1. 模型决定调用哪个工具\n2. 程序执行工具并把结果返回给模型\n3. 重复直到模型给出最终回答",
+        "similarity": 0.78,
+        "recency_relevance": 0.66
+      }
+    ],
+    "neighbor_entries": [{ "entry_id": "kb_function_calling", "name": "Function Calling", "aliases": ["工具调用"] }],
+    "ignored_names": [],
+    "categories": ["Agent 框架", "RAG", "前端工程", "LLM 基础"]
+  },
+  "output": {
+    "item_id": "item_react_post",
+    "value_score": 0.78,
+    "reason": "内容介绍了 ReAct（Reason+Act）模式，解释了其思考-行动-观察循环及其相较于纯 CoT 的优势，具备原理解释和方法价值，未在现有词条中出现，因此应新建词条。",
+    "decision": "new",
+    "item_summary": "ReAct 是一种让语言模型在推理过程中交替输出 Thought、Action、Observation 的模式，以获取外部信息并减少幻觉。",
+    "item_points": [
+      "ReAct = Reason + Act，核心是 Thought → Action → Observation 的循环。",
+      "与仅进行 CoT 相比，ReAct 能在推理中调用工具获取真实观察，降低幻觉。",
+      "提出于 Yao et al. 2022《ReAct: Synergizing Reasoning and Acting in Language Models》。",
+      "可视为 Agent Loop 的具体实现，显式包含了思考步骤。",
+      "适用于需要外部工具或知识库辅助的任务。"
+    ],
+    "concepts": [
+      {
+        "name": "ReAct",
+        "match": "new",
+        "aliases": ["Reason+Act"],
+        "kind": "pattern",
+        "evidence": [
+          {
+            "quote": "ReAct = Reason + Act。让模型交替输出 Thought / Action / Observation：先想一步，再调用工具，看到结果后再想下一步。",
+            "question": null,
+            "turn_item_id": null
+          },
+          {
+            "quote": "相比只做 CoT，推理过程能拿到外部信息，幻觉更少。出处：Yao et al. 2022《ReAct: Synergizing Reasoning and Acting in Language Models》。",
+            "question": null,
+            "turn_item_id": null
+          }
+        ],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "ReAct 是一种让语言模型在推理过程中交替输出 Thought、Action、Observation 的模式，以获取外部信息并减少幻觉。",
+        "body_markdown": "## 定义\nReAct = Reason + Act，即让模型在推理过程中先输出 Thought（思考），再输出 Action（调用工具或进行行为），最后获得 Observation（工具返回的观察结果），如此循环。\n\n## 原理\n通过显式的思考步骤，模型在每次行动前进行规划；行动后根据实际观察调整后续思路，因而能够引入外部知识、减少仅依赖内部参数的幻觉。\n\n## 用法\n1. 模型输出 Thought：描述下一步打算做什么。\n2. 模型输出 Action：调用指定工具（如搜索、计算器、API）并给出参数。\n3. 系统执行 Action 并返回 Observation。\n4. 将 Observation 填入提示，模型基于此输出下一轮 Thought，循环直至任务完成。\n\n## 注意事项\n- 需要可靠的工具执行环境，否则 Observation 可能出错并误导后续思考。\n- 思考步骤过于冗长可能增加推理延迟；应保持 Thought 简洁聚焦。\n- ReAct 并非万能，对某些纯语言推理任务可能不如纯 CoT 高效。\n\n## 出处\nYao et al. 2022，《ReAct: Synergizing Reasoning and Acting in Language Models》。",
+        "completeness": {
+          "covered": ["定义与核心循环", "原理（思考-行动-观察）", "典型使用步骤", "相较于 CoT 的优势", "典型应用场景与注意事项", "文献出处"],
+          "missing": [
+            "在具体框架（如 LangChain、AutoGPT）中的实现细节",
+            "不同工具类对性能的影响基准",
+            "与其他 Agent 模式（如 Reflexion、Plan‑and‑Execute）的详细对比"
+          ]
+        }
+      }
+    ],
+    "relations": [
+      { "from": "ReAct", "to": "Agent Loop", "type": "part_of", "description": null },
+      {
+        "from": "ReAct",
+        "to": "Agent Loop",
+        "type": "contrasts",
+        "description": "ReAct 在 Agent Loop 的基础上显式加入 Thought 步骤，使每次行动前都有明确的思考过程。"
+      }
+    ]
+  },
+  "usage": { "inputTokens": 4148, "outputTokens": 2091, "totalTokens": 6239, "durationMs": 92152 },
+  "recordedAt": "2026-10-02T19:51:31.863Z"
+}

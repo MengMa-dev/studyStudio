@@ -1,0 +1,63 @@
+{
+  "task": "knowledge_processing",
+  "promptVersion": "knowledge_processing@1",
+  "inputHash": "26354d92aee92af9597280b6c63b6c2ee89e64936dc68bb4c5ec78d626902864",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "input": {
+    "mode": "normal",
+    "episode": { "episode_id": "ep_20261001_2100", "topic": "RAG", "learning_goal": "回顾 RAG 检索质量优化方法", "uncertain": false },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_rerank_blog",
+      "type": "webpage",
+      "source_kind": "blog",
+      "title": "RAG 优化：为什么要加一层 Rerank",
+      "url": "https://example-blog.dev/rag-rerank",
+      "content": "## 问题 [露出:高]\n向量检索召回的 top-k 结果里常混有相关度不高的片段，直接塞进上下文会干扰回答。\n## 做法 [露出:高]\n先用向量检索粗召回较多候选（如 top-50），再用 cross-encoder 重排模型对「问题-片段」逐对打分，取前几条放入上下文。\n## 常见模型 [露出:高]\nbge-reranker、Cohere Rerank 等。\n## 小结 [露出:高]\n重排用更贵但更准的模型处理少量候选，在成本和效果之间取得平衡。",
+      "user_highlights": [],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "weak"
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_rerank",
+        "name": "RAG 重排",
+        "aliases": ["Rerank", "重排序"],
+        "kind": "method",
+        "summary": "向量检索粗召回后，用 cross-encoder 对候选逐对打分重排，只把最相关的片段放入上下文。",
+        "similarity": 0.89,
+        "recency_relevance": 0.48,
+        "outline": ["## 定义", "## 流程", "## 常用模型", "## 取舍"],
+        "body_markdown": "## 定义\n在向量检索之后增加一步重排，提高放入上下文的片段相关度。\n## 流程\n1. 向量检索粗召回较多候选（如 top-50）\n2. cross-encoder 对「查询-片段」逐对打分\n3. 取分数最高的几条放入上下文\n## 常用模型\nbge-reranker、Cohere Rerank、Jina Reranker。\n## 取舍\ncross-encoder 比双塔向量模型准但慢，只用于少量候选，兼顾成本与效果。"
+      }
+    ],
+    "neighbor_entries": [{ "entry_id": "kb_rag", "name": "RAG", "aliases": ["检索增强生成"] }],
+    "ignored_names": [],
+    "categories": ["Agent 框架", "RAG", "前端工程", "LLM 基础"]
+  },
+  "output": {
+    "item_id": "item_rerank_blog",
+    "value_score": 0.65,
+    "reason": "文章介绍的 RAG 重排背景、两阶段检索流程（向量粗召回 + cross-encoder 打分）、常用模型及成本效果权衡，均已被已有词条「RAG 重排」(kb_rerank) 完整覆盖，无增量要点。",
+    "decision": "duplicate",
+    "target_entry_ids": ["kb_rerank"],
+    "evidence_by_entry": [
+      {
+        "entry_id": "kb_rerank",
+        "evidence": [
+          {
+            "quote": "先用向量检索粗召回较多候选（如 top-50），再用 cross-encoder 重排模型对「问题-片段」逐对打分，取前几条放入上下文。",
+            "question": null,
+            "turn_item_id": null
+          },
+          { "quote": "重排用更贵但更准的模型处理少量候选，在成本和效果之间取得平衡。", "question": null, "turn_item_id": null }
+        ]
+      }
+    ]
+  },
+  "usage": { "inputTokens": 2007, "outputTokens": 1211, "totalTokens": 3218, "durationMs": 19562 },
+  "recordedAt": "2026-10-02T19:48:57.588Z"
+}
