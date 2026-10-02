@@ -53,6 +53,9 @@ async function check(name, fn) {
   }
 }
 
+/** Service-worker helpers (chrome.runtime.sendMessage cannot target the same SW). */
+const sw = (worker, fn, arg) => worker.evaluate(fn, arg);
+
 try {
   context = await chromium.launchPersistentContext(profileDir, {
     channel: "chromium",
@@ -67,7 +70,8 @@ try {
   });
 
   let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
-  await worker.evaluate(([url, pairingToken]) => chrome.storage.local.set({ ingestionUrl: url, pairingToken }), ["http://127.0.0.1:9", token]);
+  await waitFor("hooks", async () => sw(worker, () => Boolean(globalThis.__studyStudio)));
+  await sw(worker, ([url, pairingToken]) => chrome.storage.local.set({ ingestionUrl: url, pairingToken }), ["http://127.0.0.1:9", token]);
 
   const page = await context.newPage();
   await page.goto(articleUrl);
@@ -87,27 +91,27 @@ try {
 
   await check("服务停止 → 采集入 IndexedDB", async () => {
     const counts = await waitFor("pending", async () => {
-      const status = await worker.evaluate(() => chrome.runtime.sendMessage({ type: "study-studio:status" }));
+      const status = await sw(worker, () => globalThis.__studyStudio.status());
       return status?.counts?.total > 0 ? status.counts : null;
     });
     return `pending total=${counts.total}, knowledge=${counts.knowledge}`;
   });
 
   stub = await createStubServer({ pairingToken: token, rejectIds: [rejectId] });
-  // Recreate on reserved port: close random port stub and bind exact port via wrapping —
-  // createStubServer binds 0; instead update extension to stub.url.
   const liveUrl = stub.url;
-  await worker.evaluate(
+  await sw(
+    worker,
     async ([url, pairingToken]) => {
       await chrome.storage.local.set({ ingestionUrl: url, pairingToken });
-      return chrome.runtime.sendMessage({ type: "study-studio:save-connection", ingestionUrl: url, pairingToken });
+      return globalThis.__studyStudio.saveConnection(url, pairingToken);
     },
     [liveUrl, token]
   );
 
   await check("启动服务 → 自动同步 → 计数归零", async () => {
     const status = await waitFor("synced", async () => {
-      const current = await worker.evaluate(() => chrome.runtime.sendMessage({ type: "study-studio:status" }));
+      await sw(worker, () => globalThis.__studyStudio.sync());
+      const current = await sw(worker, () => globalThis.__studyStudio.status());
       return current?.counts?.total === 0 && current?.connectivity?.state === "online" ? current : null;
     });
     if (stub.events.length < 1) throw new Error("stub received no events");
@@ -115,10 +119,9 @@ try {
   });
 
   await check("行为事件不含正文", async () => {
-    // selection/copy may have arrived; page_session arrives on navigation/close — force stop via reload
     await page.reload();
     await page.waitForTimeout(1_000);
-    await worker.evaluate(() => chrome.runtime.sendMessage({ type: "study-studio:sync" }));
+    await sw(worker, () => globalThis.__studyStudio.sync());
     await waitFor("page_session", async () => stub.events.find((event) => event.type === "page_session"));
     const allActivity = stub.events.filter((event) => ["page_session", "selection", "copy", "search_performed", "activity_state"].includes(event.type));
     if (!allActivity.length) throw new Error("no activity events");
@@ -132,40 +135,37 @@ try {
 
   await check("手动同步", async () => {
     const before = stub.events.length;
-    await worker.evaluate(async () => {
-      await chrome.runtime.sendMessage({
-        type: "study-studio:event",
-        event: {
-          id: crypto.randomUUID().replace(/-/g, "").slice(0, 16),
-          schemaVersion: 1,
-          type: "user_note",
-          occurredAt: new Date().toISOString(),
-          source: { channel: "browser_extension", url: "https://blog.example.com/posts/retrieval-reranking" },
-          note: { text: "手动同步备注" }
-        }
+    await sw(worker, async () => {
+      await globalThis.__studyStudio.ingest({
+        id: crypto.randomUUID(),
+        schemaVersion: 1,
+        type: "user_note",
+        occurredAt: new Date().toISOString(),
+        source: { channel: "browser_extension", url: "https://blog.example.com/posts/retrieval-reranking" },
+        note: { text: "手动同步备注" }
       });
-      return chrome.runtime.sendMessage({ type: "study-studio:sync" });
+      return globalThis.__studyStudio.sync();
     });
     await waitFor("manual note", async () => stub.events.find((event) => event.type === "user_note" && event.note?.text === "手动同步备注"));
     return `delta=${stub.events.length - before}`;
   });
 
   await check("422 失败展示", async () => {
-    await worker.evaluate(async (id) => {
-      await chrome.runtime.sendMessage({
-        type: "study-studio:event",
-        event: {
+    await sw(
+      worker,
+      async (id) =>
+        globalThis.__studyStudio.ingest({
           id,
           schemaVersion: 1,
           type: "user_note",
           occurredAt: new Date().toISOString(),
           source: { channel: "browser_extension", url: "https://blog.example.com/posts/retrieval-reranking" },
           note: { text: "should fail" }
-        }
-      });
-    }, rejectId);
+        }),
+      rejectId
+    );
     const failed = await waitFor("failed list", async () => {
-      const list = await worker.evaluate(() => chrome.runtime.sendMessage({ type: "study-studio:failed-list" }));
+      const list = await sw(worker, () => globalThis.__studyStudio.failedList());
       return Array.isArray(list) && list.some((item) => item.eventId === rejectId) ? list : null;
     });
     return `failed=${failed.length}`;

@@ -283,4 +283,27 @@ export default defineBackground(() => {
     handler(message, sender).then(sendResponse, (error: Error) => sendResponse({ ok: false, error: error.message }));
     return true;
   });
+
+  // Test / Playwright hooks: call from the service worker context (sendMessage to self is invalid).
+  Object.assign(globalThis as { __studyStudio?: unknown }, {
+    __studyStudio: {
+      status: () => statusPayload(),
+      sync: async () => {
+        const connectivity = await checkConnectivity();
+        if (connectivity.state !== "online") return { ok: false, ...(await statusPayload()) };
+        const result = await syncPending("manual");
+        return { ok: true, ...result, ...(await statusPayload()) };
+      },
+      saveConnection: (ingestionUrl: string, pairingToken: string) =>
+        handlers["study-studio:save-connection"]!({ type: "study-studio:save-connection", ingestionUrl, pairingToken }, {}),
+      failedList: () => listFailed(),
+      failedClear: () => clearFailed(),
+      ingest: (event: CollectorEvent) => handleEvent(event),
+      checkConnectivity,
+      refreshSettings: async () => {
+        settingsCache = await refreshSettings();
+        return settingsCache;
+      }
+    }
+  });
 });
