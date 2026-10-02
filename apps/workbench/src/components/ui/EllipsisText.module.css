@@ -1,0 +1,23 @@
+.ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.tooltip {
+  z-index: 50;
+  max-width: 420px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #1f2329;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.arrow {
+  fill: #1f2329;
+}

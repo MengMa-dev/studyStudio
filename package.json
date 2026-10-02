@@ -15,7 +15,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run lint && npm run format:check",
-    "test": "node --import tsx --test --test-reporter=spec \"tests/**/*.test.js\" \"packages/*/test/**/*.test.ts\" \"services/*/test/**/*.test.ts\" \"scripts/**/*.test.ts\"",
+    "test": "node --import tsx --test --test-reporter=spec \"tests/**/*.test.js\" \"packages/*/test/**/*.test.ts\" \"services/*/test/**/*.test.ts\" \"scripts/**/*.test.ts\" && npm run test --workspaces --if-present",
     "verify:sqlite": "tsx scripts/verify/sqlite.ts",
     "verify:ai": "tsx scripts/verify/ai-structured-output.ts",
     "verify:wxt": "tsx scripts/verify/wxt-extension.ts"
