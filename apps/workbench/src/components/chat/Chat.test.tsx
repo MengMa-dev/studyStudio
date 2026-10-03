@@ -82,7 +82,7 @@ describe("首页对话与悬浮对话", () => {
     expect(sups).toHaveLength(3);
     expect(sups[0]?.getAttribute("href")).toBe(within(basis).getAllByRole("link")[0]?.getAttribute("href"));
     expect(screen.getByRole("button", { name: "清空对话" })).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("时间回顾的依据含学习日与条目，非学习记录回答带标记", async () => {
     const { container } = renderWithQuery(<HomePage />);

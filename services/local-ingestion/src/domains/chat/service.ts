@@ -18,7 +18,7 @@ import { createCitationRegistry } from "./citations.js";
 import type { ChatDataPartEmit } from "./contracts.js";
 import { chatModelKey, isToolsUnsupported, markToolsUnsupported, runFallback } from "./fallback.js";
 import { buildChatSystemPrompt } from "./prompt.js";
-import { appendMessage, listMessages } from "./store.js";
+import { appendMessage, listMessages, truncateAfter } from "./store.js";
 import { createChatTools } from "./tools/index.js";
 
 const HISTORY_LIMIT = 20;
@@ -93,6 +93,7 @@ export async function startChat(deps: ChatServiceDeps, request: ChatRequest, abo
 
   const primary = await aiGateway.prepareChat(request.allowOverLimit);
   appendMessage(db, CHAT_SESSION_ID, { message, context: request.context });
+  truncateAfter(db, CHAT_SESSION_ID, message.id);
   const history = trimHistory(listMessages(db, CHAT_SESSION_ID, HISTORY_LIMIT));
   let modelLabel: string | null = null;
 

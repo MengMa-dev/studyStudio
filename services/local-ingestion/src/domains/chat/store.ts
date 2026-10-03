@@ -39,6 +39,18 @@ export function appendMessage(db: DatabaseSync, sessionId: string, input: Append
   );
 }
 
+/** Retrying a user message drops whatever (failed / partial) replies followed it. */
+export function truncateAfter(db: DatabaseSync, sessionId: string, messageId: string): number {
+  const row = db.prepare("SELECT created_at, rowid FROM chat_messages WHERE session_id = ? AND id = ?").get(sessionId, messageId) as
+    { created_at: string; rowid: number } | undefined;
+  if (!row) return 0;
+  return Number(
+    db
+      .prepare("DELETE FROM chat_messages WHERE session_id = ? AND (created_at > ? OR (created_at = ? AND rowid > ?))")
+      .run(sessionId, row.created_at, row.created_at, row.rowid).changes
+  );
+}
+
 export function clearMessages(db: DatabaseSync, sessionId: string): number {
   return Number(db.prepare("DELETE FROM chat_messages WHERE session_id = ?").run(sessionId).changes);
 }

@@ -10,7 +10,7 @@ import { createCitationRegistry } from "../../src/domains/chat/citations.js";
 import { detectFallbackCalls, detectTimeRange } from "../../src/domains/chat/fallback.js";
 import { buildChatSystemPrompt } from "../../src/domains/chat/prompt.js";
 import { trimHistory } from "../../src/domains/chat/service.js";
-import { appendMessage, clearMessages, listMessages } from "../../src/domains/chat/store.js";
+import { appendMessage, clearMessages, listMessages, truncateAfter } from "../../src/domains/chat/store.js";
 
 test("citation registry dedupes objects and keeps only registered [n] in order", () => {
   const registry = createCitationRegistry();
@@ -70,7 +70,13 @@ test("chat store keeps session order, upserts by id and clears", async (t) => {
     listMessages(app.db, "main", 2).map((m) => m.id),
     ["a1", "u2"]
   );
-  assert.equal(clearMessages(app.db, "main"), 3);
+  assert.equal(truncateAfter(app.db, "main", "a1"), 1);
+  assert.deepEqual(
+    listMessages(app.db, "main").map((m) => m.id),
+    ["u1", "a1"]
+  );
+  assert.equal(truncateAfter(app.db, "main", "missing"), 0);
+  assert.equal(clearMessages(app.db, "main"), 2);
   assert.equal(listMessages(app.db, "main").length, 0);
   assert.equal(listMessages(app.db, "other").length, 1);
 });
