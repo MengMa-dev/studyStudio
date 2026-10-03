@@ -4,6 +4,7 @@ import { api } from "@/api";
 import { BackButton } from "@/components/ui/BackButton";
 import { MarkdownView } from "@/components/ui/MarkdownView";
 import { formatCapturedAt, fmtDuration, organizeStatusLabel, readStatusLabel, siteShort } from "@/lib/format";
+import { useOrganizeStore } from "@/stores/organize";
 import { useUiStore } from "@/stores/ui";
 import { useModuleMemoryStore } from "@/stores/module-memory";
 
@@ -12,6 +13,7 @@ type Props = { itemId: string };
 export function ItemDetailPage({ itemId }: Props) {
   const queryClient = useQueryClient();
   const pushToast = useUiStore((state) => state.pushToast);
+  const openOrganize = useOrganizeStore((state) => state.openDialog);
   const inboxHref = useModuleMemoryStore((state) => state.hrefFor("inbox"));
   const detail = useQuery({ queryKey: ["item", itemId], queryFn: () => api.getInboxItem(itemId) });
   const [editing, setEditing] = useState(false);
@@ -124,8 +126,13 @@ export function ItemDetailPage({ itemId }: Props) {
             <div className="pending-bar">
               内容已编辑 / {item.unusedNoteCount} 条新备注，尚未用于整理
               <div className="grow" />
-              <button type="button" className="btn sm">
-                重新整理
+              <button
+                type="button"
+                className="btn sm"
+                data-organize-scope="item"
+                onClick={() => openOrganize({ scopes: ["item"], itemIds: [item.id], targetName: item.title })}
+              >
+                ✦ 重新整理
               </button>
             </div>
           ) : null}

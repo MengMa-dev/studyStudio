@@ -9,15 +9,26 @@ import {
   organizeRunStartResponseSchema,
   organizeSettingsResponseSchema,
   organizeSettingsUpdateSchema,
+  type Note,
   type OrganizeEvent,
   type OrganizePreviewRequestInput,
   type OrganizeRunDetail,
+  type OrganizeRunRequest,
   type OrganizeRunRequestInput,
   type OrganizeRunsQuery,
   type OrganizeRunStats,
+  type OrganizeScope,
   type OrganizeSettings,
-  type OrganizeSettingsUpdate
+  type OrganizeSettingsUpdate,
+  type OrganizeStage,
+  type OrganizeTrigger
 } from "@study-studio/shared";
+
+import { getMockState } from "./client";
+import { mockIntegrateItem, mockKbDirtyCount, mockKbEntryIds, mockKbEntryName, mockKbEntryNotes, mockRewriteEntries } from "./kb";
+import type { MockItem } from "./seed";
+
+const MODEL = "gemini-3.8-flash";
 
 function emptyStats(): OrganizeRunStats {
   return {
@@ -32,15 +43,130 @@ function emptyStats(): OrganizeRunStats {
 function createRuns(): OrganizeRunDetail[] {
   return [
     {
+      id: "run-4",
+      trigger: "manual",
+      scope: "kb_selected",
+      requirement: "重点突出和双塔模型的区别，多举例子",
+      status: "completed",
+      startedAt: "2026-10-02T01:12:00.000Z",
+      finishedAt: "2026-10-02T01:13:41.000Z",
+      tokens: 9_620,
+      model: MODEL,
+      stats: {
+        ...emptyStats(),
+        kb: { entriesCreated: 0, relationsCreated: 1, entriesSupplemented: 0, entriesRewritten: 2 },
+        stages: [{ stage: "entry_rewrite", calls: 2, inputTokens: 7_900, outputTokens: 1_720 }]
+      },
+      progress: null,
+      items: [],
+      entries: [
+        { entryId: "kb-rerank", name: "重排", change: "rewritten" },
+        { entryId: "kb-bi", name: "双塔模型", change: "rewritten" }
+      ],
+      failures: []
+    },
+    {
+      id: "run-3",
+      trigger: "on_ingest",
+      scope: null,
+      requirement: null,
+      status: "paused",
+      startedAt: "2026-10-01T14:05:00.000Z",
+      finishedAt: "2026-10-01T14:05:20.000Z",
+      tokens: 1_210,
+      model: MODEL,
+      stats: {
+        ...emptyStats(),
+        items: { total: 1, ingested: 0, rejected: 0, failed: 0, skipped: 0 },
+        stages: [{ stage: "learning_judge", calls: 1, inputTokens: 1_050, outputTokens: 160 }]
+      },
+      progress: { stage: "learning_judge", done: 0, total: 1 },
+      items: [
+        {
+          itemId: "item-p5",
+          title: "example/rag-toolkit：开箱即用的 RAG 工具集",
+          type: "webpage",
+          status: "pending",
+          decision: null,
+          route: null,
+          entryIds: [],
+          error: null
+        }
+      ],
+      entries: [],
+      failures: []
+    },
+    {
+      id: "run-2",
+      trigger: "batch",
+      scope: null,
+      requirement: null,
+      status: "completed",
+      startedAt: "2026-10-01T13:30:00.000Z",
+      finishedAt: "2026-10-01T13:33:05.000Z",
+      tokens: 12_880,
+      model: MODEL,
+      stats: {
+        episodes: { learning: 2, notLearning: 0, deferred: 0 },
+        items: { total: 3, ingested: 3, rejected: 0, failed: 0, skipped: 0 },
+        decisions: { new: 2, supplement: 0, duplicate: 1, reject: 0, notLearning: 0, prefiltered: 0 },
+        kb: { entriesCreated: 3, relationsCreated: 4, entriesSupplemented: 0, entriesRewritten: 0 },
+        stages: [
+          { stage: "learning_judge", calls: 2, inputTokens: 2_900, outputTokens: 410 },
+          { stage: "knowledge_processing", calls: 3, inputTokens: 8_300, outputTokens: 1_270 }
+        ]
+      },
+      progress: null,
+      items: [
+        {
+          itemId: "item-q2",
+          title: "向量召回和重排有什么区别？",
+          type: "conversation",
+          status: "ingested",
+          decision: "new",
+          route: "llm",
+          entryIds: ["kb-hybrid", "kb-prompt-cache"],
+          error: null
+        },
+        {
+          itemId: "item-p4",
+          title: "Okapi BM25 - 维基百科",
+          type: "webpage",
+          status: "ingested",
+          decision: "new",
+          route: "llm",
+          entryIds: ["kb-bm25", "kb-rrf"],
+          error: null
+        },
+        {
+          itemId: "item-q1",
+          title: "什么是交叉编码器？",
+          type: "conversation",
+          status: "ingested",
+          decision: "duplicate",
+          route: "prefilter:simhash",
+          entryIds: ["kb-cross"],
+          error: null
+        }
+      ],
+      entries: [
+        { entryId: "kb-hybrid", name: "混合检索", change: "created" },
+        { entryId: "kb-bm25", name: "BM25", change: "created" },
+        { entryId: "kb-rrf", name: "RRF 融合", change: "created" },
+        { entryId: "kb-cross", name: "交叉编码器", change: "duplicate" }
+      ],
+      failures: []
+    },
+    {
       id: "run-1",
       trigger: "daily",
       scope: null,
       requirement: null,
       status: "completed",
-      startedAt: "2026-10-01T15:00:00.000Z",
-      finishedAt: "2026-10-01T15:04:12.000Z",
+      startedAt: "2026-09-30T15:00:00.000Z",
+      finishedAt: "2026-09-30T15:04:12.000Z",
       tokens: 18_420,
-      model: "gemini-3.8-flash",
+      model: MODEL,
       stats: {
         episodes: { learning: 2, notLearning: 1, deferred: 0 },
         items: { total: 4, ingested: 2, rejected: 1, failed: 1, skipped: 0 },
@@ -53,10 +179,19 @@ function createRuns(): OrganizeRunDetail[] {
       },
       progress: null,
       items: [
-        { itemId: "item-p2", title: "重排模型对比", type: "webpage", status: "ingested", decision: "new", route: "llm", entryIds: ["kb-cross"], error: null },
+        {
+          itemId: "item-p2",
+          title: "交叉编码器和双塔模型应该怎么选？",
+          type: "webpage",
+          status: "ingested",
+          decision: "new",
+          route: "llm",
+          entryIds: ["kb-cross"],
+          error: null
+        },
         {
           itemId: "item-q1",
-          title: "交叉编码器为什么慢",
+          title: "什么是交叉编码器？",
           type: "conversation",
           status: "ingested",
           decision: "supplement",
@@ -66,21 +201,30 @@ function createRuns(): OrganizeRunDetail[] {
         },
         {
           itemId: "item-p3",
-          title: "导航页",
+          title: "IntersectionObserver - Web API | MDN",
           type: "webpage",
           status: "rejected",
           decision: "reject",
-          route: "prefilter:navigational",
+          route: "prefilter:low_info",
           entryIds: [],
           error: null
         },
-        { itemId: "item-p4", title: "超长文档", type: "webpage", status: "failed", decision: null, route: null, entryIds: [], error: "context_length_exceeded" }
+        {
+          itemId: "item-p1",
+          title: "从零实现 HNSW：分层可导航小世界图",
+          type: "webpage",
+          status: "failed",
+          decision: null,
+          route: "llm_long",
+          entryIds: [],
+          error: "context_length_exceeded"
+        }
       ],
       entries: [
         { entryId: "kb-cross", name: "交叉编码器", change: "created" },
         { entryId: "kb-rerank", name: "重排", change: "supplemented" }
       ],
-      failures: [{ jobId: "job-4", kind: "item", targetId: "item-p4", attempts: 3, error: "context_length_exceeded" }]
+      failures: [{ jobId: "job-4", kind: "item", targetId: "item-p1", attempts: 3, error: "context_length_exceeded" }]
     }
   ];
 }
@@ -88,29 +232,241 @@ function createRuns(): OrganizeRunDetail[] {
 let settings: OrganizeSettings = structuredClone(DEFAULT_ORGANIZE_SETTINGS);
 let runs: OrganizeRunDetail[] = createRuns();
 const listeners = new Set<(event: OrganizeEvent) => void>();
+let tickMs = 650;
+let activeTimer: ReturnType<typeof setTimeout> | null = null;
+let idleWaiters: Array<() => void> = [];
 
 export function resetMockOrganizeState(): void {
+  if (activeTimer) clearTimeout(activeTimer);
+  activeTimer = null;
   settings = structuredClone(DEFAULT_ORGANIZE_SETTINGS);
   runs = createRuns();
+  flushIdle();
+}
+
+/** Delay between simulated progress steps (tests use 0). */
+export function setMockOrganizeTickMs(ms: number): void {
+  tickMs = ms;
+}
+
+/** Resolves once no simulated run is active. */
+export function waitForMockOrganizeIdle(): Promise<void> {
+  if (!activeRun()) return Promise.resolve();
+  return new Promise((resolve) => idleWaiters.push(resolve));
+}
+
+function flushIdle(): void {
+  const waiters = idleWaiters;
+  idleWaiters = [];
+  for (const resolve of waiters) resolve();
 }
 
 function emit(event: OrganizeEvent): void {
   for (const listener of listeners) listener(event);
 }
 
+function activeRun(): OrganizeRunDetail | undefined {
+  return runs.find((run) => run.status === "running" || run.status === "queued");
+}
+
+function liveItems(): MockItem[] {
+  return getMockState().items.filter((item) => !item.deletedAt);
+}
+
+function isPending(item: MockItem): boolean {
+  return item.organizeStatus === "pending" || item.organizeStatus === "failed";
+}
+
+function fuzzyNotes(): Note[] {
+  return getMockState().notes.filter((note) => note.scope === "fuzzy");
+}
+
 function settingsResponse() {
+  const items = liveItems();
   return organizeSettingsResponseSchema.parse({
     settings,
-    lastRunAt: runs[0]?.finishedAt ?? null,
-    nextRunAt: settings.autoEnabled && settings.triggers.daily.enabled ? "2026-10-03T15:00:00.000Z" : null,
-    pendingCount: 3,
-    dirtyCount: 1,
-    activeRunId: runs.find((run) => run.status === "running" || run.status === "queued")?.id ?? null
+    lastRunAt: runs.find((run) => run.finishedAt)?.finishedAt ?? null,
+    nextRunAt: settings.autoEnabled && settings.triggers.daily.enabled ? `2026-10-03T${settings.triggers.daily.time}:00.000+08:00` : null,
+    pendingCount: items.filter(isPending).length,
+    dirtyCount: items.filter((item) => item.dirty).length + mockKbDirtyCount(),
+    activeRunId: activeRun()?.id ?? null
   });
 }
 
 function summaryOf({ items: _items, entries: _entries, failures: _failures, ...summary }: OrganizeRunDetail) {
   return summary;
+}
+
+type Targets = { items: MockItem[]; entryIds: string[] };
+
+function resolveTargets(scope: OrganizeScope, itemIds: string[], entryIds: string[]): Targets {
+  const items = liveItems();
+  switch (scope) {
+    case "item":
+    case "inbox_selected":
+      return { items: items.filter((item) => itemIds.includes(item.id)), entryIds: [] };
+    case "inbox_pending":
+      return { items: items.filter((item) => isPending(item) || item.dirty), entryIds: [] };
+    case "inbox_all":
+      return { items, entryIds: [] };
+    case "entry":
+    case "kb_selected":
+      return { items: [], entryIds: mockKbEntryIds().filter((id) => entryIds.includes(id)) };
+    case "kb_pending":
+      return { items: [], entryIds: mockKbEntryIds("pending") };
+    case "kb_all":
+      return { items: [], entryIds: mockKbEntryIds() };
+  }
+}
+
+function itemNotes(items: MockItem[]): Note[] {
+  const ids = new Set(items.map((item) => item.id));
+  return getMockState().notes.filter((note) => note.scope === "item" && note.targetId !== null && ids.has(note.targetId));
+}
+
+function usesFuzzy(scope: OrganizeScope): boolean {
+  return scope === "inbox_selected" || scope === "inbox_pending" || scope === "inbox_all";
+}
+
+function saveRequirement(body: OrganizeRunRequest): void {
+  if (!body.requirement) return;
+  const now = new Date().toISOString();
+  const scope = body.scope === "item" ? "item" : body.scope === "entry" ? "entry" : "fuzzy";
+  const targetId = scope === "item" ? (body.itemIds[0] ?? null) : scope === "entry" ? (body.entryIds[0] ?? null) : null;
+  getMockState().notes.unshift({
+    id: `note-req-${Date.now()}`,
+    scope,
+    targetId,
+    text: body.requirement,
+    origin: "organize_requirement",
+    usedAt: null,
+    createdAt: now,
+    updatedAt: null
+  });
+}
+
+type Step = { stage: OrganizeStage; title: string | null; itemId: string | null; apply: (run: OrganizeRunDetail) => void };
+
+function addStage(stats: OrganizeRunStats, stage: OrganizeStage, inputTokens: number, outputTokens: number): void {
+  const found = stats.stages.find((entry) => entry.stage === stage);
+  if (found) {
+    found.calls += 1;
+    found.inputTokens += inputTokens;
+    found.outputTokens += outputTokens;
+  } else {
+    stats.stages.push({ stage, calls: 1, inputTokens, outputTokens });
+  }
+}
+
+function itemStep(item: MockItem): Step {
+  return {
+    stage: "knowledge_processing",
+    title: item.title,
+    itemId: item.id,
+    apply: (run) => {
+      const now = new Date().toISOString();
+      const result = mockIntegrateItem(item, now);
+      const ingested = result.decision !== "reject";
+      item.organizeStatus = ingested ? "ingested" : "rejected";
+      item.dirty = false;
+      for (const note of itemNotes([item])) note.usedAt = now;
+      run.items.push({
+        itemId: item.id,
+        title: item.title,
+        type: item.type,
+        status: ingested ? "ingested" : "rejected",
+        decision: result.decision,
+        route: result.decision === "reject" ? "prefilter:low_info" : "llm",
+        entryIds: result.entries.map((change) => change.entryId),
+        error: null
+      });
+      for (const change of result.entries) if (!run.entries.some((existing) => existing.entryId === change.entryId)) run.entries.push(change);
+      const stats = run.stats;
+      stats.items[ingested ? "ingested" : "rejected"] += 1;
+      stats.decisions[result.decision] += 1;
+      if (result.decision === "reject") stats.decisions.prefiltered += 1;
+      else stats.episodes.learning += 1;
+      stats.kb.entriesCreated += result.entries.filter((change) => change.change === "created").length;
+      stats.kb.entriesSupplemented += result.entries.filter((change) => change.change === "supplemented").length;
+      stats.kb.relationsCreated += result.entries.filter((change) => change.change === "created").length;
+      addStage(stats, "learning_judge", 900, 140);
+      if (result.decision !== "reject") addStage(stats, "knowledge_processing", 3_200, 520);
+      run.tokens = stats.stages.reduce((sum, stage) => sum + stage.inputTokens + stage.outputTokens, 0);
+      emit({ type: "item_done", runId: run.id, itemId: item.id, status: ingested ? "ingested" : "rejected", decision: result.decision });
+    }
+  };
+}
+
+function entryStep(entryId: string): Step {
+  return {
+    stage: "entry_rewrite",
+    title: mockKbEntryName(entryId),
+    itemId: null,
+    apply: (run) => {
+      const changes = mockRewriteEntries([entryId], new Date().toISOString());
+      for (const change of changes) run.entries.push(change);
+      run.stats.kb.entriesRewritten += changes.length;
+      addStage(run.stats, "entry_rewrite", 3_600, 820);
+      run.tokens = run.stats.stages.reduce((sum, stage) => sum + stage.inputTokens + stage.outputTokens, 0);
+    }
+  };
+}
+
+function startRun(
+  trigger: OrganizeTrigger,
+  scope: OrganizeScope | null,
+  requirement: string | null,
+  steps: Step[],
+  onFinish?: (run: OrganizeRunDetail) => void
+) {
+  const total = steps.length;
+  const run: OrganizeRunDetail = organizeRunDetailSchema.parse({
+    id: `run-${Date.now()}`,
+    trigger,
+    scope,
+    requirement,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    tokens: 0,
+    model: MODEL,
+    stats: { ...emptyStats(), items: { ...emptyStats().items, total: steps.filter((step) => step.itemId).length } },
+    progress: { stage: "context", done: 0, total },
+    items: [],
+    entries: [],
+    failures: []
+  });
+  runs.unshift(run);
+  emit({ type: "run_started", runId: run.id, trigger, scope, total });
+
+  let index = 0;
+  const tick = () => {
+    const step = steps[index];
+    if (!step) {
+      run.status = "completed";
+      run.finishedAt = new Date().toISOString();
+      run.progress = null;
+      onFinish?.(run);
+      activeTimer = null;
+      emit({ type: "run_finished", runId: run.id, status: run.status, stats: run.stats });
+      flushIdle();
+      return;
+    }
+    run.progress = { stage: step.stage, done: index, total };
+    emit({ type: "run_progress", runId: run.id, stage: step.stage, done: index, total, currentItemId: step.itemId, currentTitle: step.title });
+    step.apply(run);
+    index += 1;
+    run.progress = { stage: step.stage, done: index, total };
+    emit({ type: "run_progress", runId: run.id, stage: step.stage, done: index, total, currentItemId: step.itemId, currentTitle: step.title });
+    activeTimer = setTimeout(tick, tickMs);
+  };
+  activeTimer = setTimeout(tick, tickMs);
+  return run;
+}
+
+function conflict(): never {
+  const running = activeRun();
+  throw new Error(`API 409: ${JSON.stringify({ error: "run_in_progress", runId: running?.id ?? null })}`);
 }
 
 export const mockOrganizeApi = {
@@ -134,42 +490,30 @@ export const mockOrganizeApi = {
 
   async previewOrganize(requestBody: OrganizePreviewRequestInput) {
     const body = organizePreviewRequestSchema.parse(requestBody);
-    const itemCount = body.scope.startsWith("inbox_") || body.scope === "item" ? Math.max(body.itemIds.length, body.scope === "inbox_selected" ? 0 : 3) : 0;
-    const entryCount = body.scope.startsWith("kb_") || body.scope === "entry" ? Math.max(body.entryIds.length, body.scope === "kb_selected" ? 0 : 2) : 0;
+    const targets = resolveTargets(body.scope, body.itemIds, body.entryIds);
+    const notes = [...itemNotes(targets.items), ...mockKbEntryNotes(targets.entryIds)];
+    const fuzzy = usesFuzzy(body.scope) ? fuzzyNotes() : [];
     return organizePreviewResponseSchema.parse({
-      itemCount,
-      entryCount,
-      newItemCount: itemCount,
-      editedItemCount: 0,
-      noteCount: 1,
-      newNoteCount: 1,
-      fuzzyNoteCount: 1,
+      itemCount: targets.items.length,
+      entryCount: targets.entryIds.length,
+      newItemCount: targets.items.filter((item) => item.organizeStatus === "pending").length,
+      editedItemCount: targets.items.filter((item) => item.dirty).length,
+      noteCount: notes.length + fuzzy.length,
+      newNoteCount: [...notes, ...fuzzy].filter((note) => !note.usedAt).length,
+      fuzzyNoteCount: fuzzy.length,
       overDailyLimit: false
     });
   },
 
   async runOrganize(requestBody: OrganizeRunRequestInput) {
     const body = organizeRunRequestSchema.parse(requestBody);
-    const total = body.itemIds.length + body.entryIds.length || 3;
-    const run: OrganizeRunDetail = organizeRunDetailSchema.parse({
-      id: `run-${Date.now()}`,
-      trigger: "manual",
-      scope: body.scope,
-      requirement: body.requirement ?? null,
-      status: "completed",
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      tokens: 0,
-      model: "mock",
-      stats: { ...emptyStats(), items: { total, ingested: total, rejected: 0, failed: 0, skipped: 0 } },
-      progress: null,
-      items: [],
-      entries: [],
-      failures: []
+    if (activeRun()) conflict();
+    saveRequirement(body);
+    const targets = resolveTargets(body.scope, body.itemIds, body.entryIds);
+    const steps = [...targets.items.map((item) => itemStep(item)), ...targets.entryIds.map(entryStep)];
+    const run = startRun("manual", body.scope, body.requirement ?? null, steps, () => {
+      if (usesFuzzy(body.scope)) for (const note of fuzzyNotes()) note.usedAt ??= new Date().toISOString();
     });
-    runs.unshift(run);
-    emit({ type: "run_started", runId: run.id, trigger: run.trigger, scope: run.scope, total });
-    emit({ type: "run_finished", runId: run.id, status: run.status, stats: run.stats });
     return organizeRunStartResponseSchema.parse({ run: summaryOf(run) });
   },
 
@@ -183,25 +527,26 @@ export const mockOrganizeApi = {
 
   async getOrganizeRun(id: string) {
     const run = runs.find((candidate) => candidate.id === id);
-    if (!run) throw new Error(`Run not found: ${id}`);
+    if (!run) throw new Error(`API 404: run not found: ${id}`);
     return organizeRunDetailSchema.parse(run);
   },
 
   async retryOrganizeRun(id: string) {
     const source = runs.find((candidate) => candidate.id === id);
-    if (!source) throw new Error(`Run not found: ${id}`);
-    const run = organizeRunDetailSchema.parse({
-      ...source,
-      id: `run-${Date.now()}`,
-      trigger: "retry",
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      stats: emptyStats(),
-      items: [],
-      entries: [],
-      failures: []
-    });
-    runs.unshift(run);
+    if (!source) throw new Error(`API 404: run not found: ${id}`);
+    if (activeRun()) conflict();
+    const failedIds = new Set(source.failures.map((failure) => failure.targetId).filter((target): target is string => Boolean(target)));
+    const items = liveItems().filter((item) => failedIds.has(item.id));
+    const run = startRun(
+      "retry",
+      source.scope,
+      source.requirement,
+      items.map((item) => itemStep(item)),
+      () => {
+        source.failures = [];
+        source.items = source.items.map((item) => (failedIds.has(item.itemId) ? { ...item, status: "skipped", error: "已重试，见新记录" } : item));
+      }
+    );
     return organizeRunStartResponseSchema.parse({ run: summaryOf(run) });
   },
 

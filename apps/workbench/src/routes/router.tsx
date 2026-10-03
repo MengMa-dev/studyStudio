@@ -1,14 +1,22 @@
-import { Outlet, createHashHistory, createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import { useCallback } from "react";
+import { Outlet, createHashHistory, createRootRoute, createRoute, createRouter, redirect, useRouterState } from "@tanstack/react-router";
+import { kbEntryKindSchema } from "@study-studio/shared";
 import { z } from "zod";
 import { AppShell } from "@/components/layout/AppShell";
+import { OrganizeDialogHost } from "@/components/organize/OrganizeDialog";
+import { OrganizeEventsBridge } from "@/components/organize/OrganizeEventsBridge";
+import { KbEntryPage } from "@/pages/kb/KbEntryPage";
+import { KbPage } from "@/pages/kb/KbPage";
 import { HomePage } from "@/pages/home/HomePage";
 import { InboxPage } from "@/pages/inbox/InboxPage";
 import { ItemDetailPage } from "@/pages/inbox/ItemDetailPage";
 import { OnboardingPage } from "@/pages/onboarding/OnboardingPage";
-import { PlaceholderPage } from "@/pages/placeholder/PlaceholderPage";
 import { ProgressPage } from "@/pages/progress/ProgressPage";
+import { RunDetailPage } from "@/pages/runs/RunDetailPage";
+import { RunsPage } from "@/pages/runs/RunsPage";
 import { SettingsPage } from "@/pages/settings/SettingsPage";
 import { api } from "@/api";
+import "@/styles/kb.css";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />
@@ -18,9 +26,12 @@ const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app",
   component: function AppLayout() {
+    const pathname = useRouterState({ select: (state) => state.location.pathname });
     return (
-      <AppShell>
+      <AppShell fit={pathname === "/wiki"}>
         <Outlet />
+        <OrganizeDialogHost />
+        <OrganizeEventsBridge />
       </AppShell>
     );
   },
@@ -49,10 +60,36 @@ const homeRoute = createRoute({
   component: HomePage
 });
 
+const wikiSearchSchema = z.object({
+  q: z.string().optional().catch(undefined),
+  kind: kbEntryKindSchema.optional().catch(undefined),
+  sel: z.string().optional().catch(undefined)
+});
+
 const wikiRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/wiki",
-  component: () => <PlaceholderPage title="知识库" hint="目录与词条将在 M6 实现" />
+  validateSearch: (search) => wikiSearchSchema.parse(search),
+  component: function WikiRoute() {
+    const search = wikiRoute.useSearch();
+    const navigate = wikiRoute.useNavigate();
+    const onFilterChange = useCallback(
+      (next: { q: string; kind: z.infer<typeof wikiSearchSchema>["kind"] }) => {
+        void navigate({ search: (prev) => ({ ...prev, q: next.q.trim() ? next.q : undefined, kind: next.kind }), replace: true });
+      },
+      [navigate]
+    );
+    return <KbPage q={search.q ?? ""} kind={search.kind} selectedId={search.sel} onFilterChange={onFilterChange} />;
+  }
+});
+
+const wikiEntryRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/wiki/$entryId",
+  component: function WikiEntryRoute() {
+    const { entryId } = wikiEntryRoute.useParams();
+    return <KbEntryPage entryId={entryId} />;
+  }
 });
 
 const progressRoute = createRoute({
@@ -100,7 +137,16 @@ const itemRoute = createRoute({
 const runsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/runs",
-  component: () => <PlaceholderPage title="整理记录" hint="整理运行记录将在 M5/M6 实现；侧栏入口已预留" />
+  component: RunsPage
+});
+
+const runDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/runs/$runId",
+  component: function RunDetailRoute() {
+    const { runId } = runDetailRoute.useParams();
+    return <RunDetailPage runId={runId} />;
+  }
 });
 
 const settingsRoute = createRoute({
@@ -136,7 +182,19 @@ const onboardingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   onboardingRoute,
-  appRoute.addChildren([indexRoute, homeRoute, wikiRoute, progressRoute, inboxRoute, itemRoute, runsRoute, settingsIndexRoute, settingsRoute])
+  appRoute.addChildren([
+    indexRoute,
+    homeRoute,
+    wikiRoute,
+    wikiEntryRoute,
+    progressRoute,
+    inboxRoute,
+    itemRoute,
+    runsRoute,
+    runDetailRoute,
+    settingsIndexRoute,
+    settingsRoute
+  ])
 ]);
 
 export const router = createRouter({

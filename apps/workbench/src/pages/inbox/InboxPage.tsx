@@ -4,10 +4,12 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { Checkbox } from "radix-ui";
 import type { InboxListRow, InboxListStatusFilter, InboxListTypeFilter } from "@study-studio/shared";
 import { api } from "@/api";
+import { InboxOrganizeHint } from "@/components/organize/InboxOrganizeHint";
 import { EllipsisText } from "@/components/ui/EllipsisText";
 import { Modal } from "@/components/ui/Modal";
 import { formatCapturedAt, fmtDuration, organizeStatusLabel, readStatusLabel, siteShort } from "@/lib/format";
 import { pageSelectionStats, partitionSelection } from "@/lib/selection";
+import { useOrganizeStore } from "@/stores/organize";
 import { useSelectionStore } from "@/stores/selection";
 import { useUiStore } from "@/stores/ui";
 import styles from "./InboxPage.module.css";
@@ -43,6 +45,7 @@ export function InboxPage({ type, status, onTypeChange, onStatusChange }: Props)
   const selectAllPage = useSelectionStore((state) => state.selectAllPage);
   const clear = useSelectionStore((state) => state.clear);
   const pushToast = useUiStore((state) => state.pushToast);
+  const openOrganize = useOrganizeStore((state) => state.openDialog);
 
   const [cursorStack, setCursorStack] = useState<Array<string | undefined>>([undefined]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -176,7 +179,23 @@ export function InboxPage({ type, status, onTypeChange, onStatusChange }: Props)
       <div className="page-header">
         <h1>收集箱</h1>
         <span className="sub">共 {list.data?.total ?? trash.data?.entries.length ?? "—"} 条</span>
+        <div className="actions">
+          <button
+            type="button"
+            className="btn"
+            data-organize-scope="inbox"
+            onClick={() =>
+              openOrganize({
+                scopes: impactIds.itemIds.length ? ["inbox_selected", "inbox_pending", "inbox_all"] : ["inbox_pending", "inbox_all"],
+                itemIds: impactIds.itemIds
+              })
+            }
+          >
+            ✦ 整理
+          </button>
+        </div>
       </div>
+      {type === "trash" ? null : <InboxOrganizeHint selectedItemIds={impactIds.itemIds} />}
       <div className={`card inbox-card ${styles.card}`}>
         <div className="tabs">
           {TABS.map((tab) => (
@@ -268,6 +287,16 @@ export function InboxPage({ type, status, onTypeChange, onStatusChange }: Props)
                 {impactIds.itemIds.length ? (
                   <button type="button" className="btn sm" onClick={() => setTagOpen(true)}>
                     加标签
+                  </button>
+                ) : null}
+                {impactIds.itemIds.length ? (
+                  <button
+                    type="button"
+                    className="btn sm"
+                    data-organize-scope="inbox_selected"
+                    onClick={() => openOrganize({ scopes: ["inbox_selected", "inbox_pending", "inbox_all"], itemIds: impactIds.itemIds })}
+                  >
+                    ✦ 整理
                   </button>
                 ) : null}
                 <button type="button" className="btn sm danger" onClick={() => setDeleteOpen(true)}>

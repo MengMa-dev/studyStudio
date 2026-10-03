@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { SettingsAi } from "./SettingsAi";
 import { SettingsCollect } from "./SettingsCollect";
 import { SettingsData } from "./SettingsData";
+import { SettingsOrganize } from "./SettingsOrganize";
 import { SettingsProfile } from "./SettingsProfile";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
 
@@ -35,7 +36,7 @@ export function SettingsPage({ section }: Props) {
       body = <SettingsAi />;
       break;
     case "organize":
-      body = <SettingsPlaceholder title="整理规则" hint="M5 将在此配置自动整理触发器。整理记录见侧栏「整理记录」。" />;
+      body = <SettingsOrganize />;
       break;
   }
 
