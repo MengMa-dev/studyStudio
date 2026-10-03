@@ -15,6 +15,7 @@
     "dexie": "^4.4.6"
   },
   "devDependencies": {
+    "web-ext": "^10.7.0",
     "wxt": "^0.21.4"
   }
 }

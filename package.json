@@ -7,6 +7,7 @@
     "dev": "node scripts/dev.js",
     "build": "node scripts/build.js",
     "build:release": "node scripts/build.js --release",
+    "dev:extension": "npm run dev -w @study-studio/browser-extension",
     "pack:extension": "npm run zip -w @study-studio/browser-extension",
     "start": "node packages/cli/bin/study-studio.js",
     "build:extension": "node scripts/build-extension.js",
