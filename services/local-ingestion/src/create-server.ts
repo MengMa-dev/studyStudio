@@ -108,9 +108,24 @@ export async function createIngestionServer(options: CreateIngestionServerOption
   };
 }
 
-export async function startFromEnv(): Promise<void> {
-  const port = Number(process.env.STUDY_STUDIO_PORT ?? 43118);
-  const dataDir = process.env.STUDY_STUDIO_DATA_DIR ?? join(process.cwd(), "StudyStudioData");
+export type StartOptions = {
+  /** Overrides STUDY_STUDIO_DATA_DIR. */
+  dataDir?: string;
+  /** Overrides STUDY_STUDIO_PORT. */
+  port?: number;
+  workbenchDist?: string;
+};
+
+export type StartedServer = {
+  port: number;
+  dataDir: string;
+  loginUrl: string;
+  vectorEnabled: boolean;
+};
+
+export async function startFromEnv(options: StartOptions = {}): Promise<StartedServer> {
+  const port = options.port ?? Number(process.env.STUDY_STUDIO_PORT ?? 43118);
+  const dataDir = options.dataDir ?? process.env.STUDY_STUDIO_DATA_DIR ?? join(process.cwd(), "StudyStudioData");
   mkdirSync(dataDir, { recursive: true });
   const tokenFile = join(dataDir, ".pairing-token");
   const pairingToken = process.env.STUDY_STUDIO_TOKEN ?? (existsSync(tokenFile) ? readFileSync(tokenFile, "utf8").trim() : randomUUID());
@@ -120,12 +135,13 @@ export async function startFromEnv(): Promise<void> {
   const ingestion = await createIngestionServer({
     dataDir,
     pairingToken,
-    ...(dev ? { minRevisitSeconds: 3 } : {})
+    ...(dev ? { minRevisitSeconds: 3 } : {}),
+    ...(options.workbenchDist ? { workbenchDist: options.workbenchDist } : {})
   });
 
-  await ingestion.listen(port);
-  const login = createLoginLink(ingestion.auth, port);
-  console.log(`Study Studio listening at http://127.0.0.1:${port}${dev ? " (DEV)" : ""}`);
+  const listenPort = await ingestion.listen(port);
+  const login = createLoginLink(ingestion.auth, listenPort);
+  console.log(`Study Studio listening at http://127.0.0.1:${listenPort}${dev ? " (DEV)" : ""}`);
   console.log(`Workbench login: ${login}`);
   console.log(`Pairing token: ${pairingToken}`);
   console.log(`Data directory: ${dataDir}`);
@@ -138,4 +154,5 @@ export async function startFromEnv(): Promise<void> {
   };
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
+  return { port: listenPort, dataDir, loginUrl: login, vectorEnabled: ingestion.db.vectorEnabled };
 }
