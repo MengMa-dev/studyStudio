@@ -120,3 +120,121 @@ export type TrashRow = {
   deleted_at: string | null;
   expires_at: string | null;
 };
+
+export type KbCategoryRow = {
+  id: string;
+  name: string | null;
+  description: string | null;
+  sort: number | null;
+};
+
+export type KbEntryRow = {
+  id: string;
+  name: string;
+  category_id: string | null;
+  kind: string | null;
+  /** JSON string[] */
+  aliases: string | null;
+  summary: string | null;
+  body_markdown: string | null;
+  completeness: string | null;
+  mastery: number | null;
+  mastery_source: string | null;
+  user_edited: number;
+  stale: number;
+  orphan: number;
+  patch_count: number;
+  dirty: number;
+  updated_at: string | null;
+  deleted_at: string | null;
+};
+
+export type KbEdgeRow = {
+  src: string;
+  dst: string;
+  type: string;
+};
+
+export type KbEdgeSourceRow = {
+  src: string;
+  dst: string;
+  type: string;
+  item_id: string | null;
+  description: string | null;
+};
+
+export type KbEntrySourceRow = {
+  entry_id: string;
+  item_id: string;
+  evidence: string | null;
+  source_kind: string | null;
+  added_at: string | null;
+};
+
+export type KbIgnoreRow = {
+  name: string;
+  created_at: string | null;
+};
+
+export type OrganizeResultRow = {
+  item_id: string;
+  summary: string | null;
+  points: string | null;
+  model: string | null;
+  prompt_version: string | null;
+  input_hash: string | null;
+  run_id: string | null;
+  updated_at: string | null;
+  episode_id: string | null;
+  decision: string | null;
+  route: string | null;
+  value_score: number | null;
+  target_entry_ids: string | null;
+  output: string | null;
+  reject_reason: string | null;
+  reason: string | null;
+  override: string | null;
+};
+
+export type EpisodeRow = {
+  id: string;
+  started_at: string | null;
+  ended_at: string | null;
+  active_seconds: number | null;
+  status: string;
+  is_learning: number | null;
+  confidence: number | null;
+  topic: string | null;
+  learning_goal: string | null;
+  judge_output: string | null;
+  run_id: string | null;
+  prompt_version: string | null;
+  created_at: string | null;
+};
+
+export type OrganizeRunRow = {
+  id: string;
+  trigger: string | null;
+  scope: string | null;
+  requirement: string | null;
+  status: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  stats: string | null;
+  tokens: number | null;
+  model: string | null;
+  /** JSON { itemIds?, entryIds? } */
+  scope_ids: string | null;
+  progress: string | null;
+};
+
+export type OrganizeJobRow = {
+  id: string;
+  run_id: string | null;
+  kind: string | null;
+  target_id: string | null;
+  status: string | null;
+  attempts: number | null;
+  error: string | null;
+  updated_at: string | null;
+};
