@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { OrganizeEvent } from "@study-studio/shared";
 import { mockApi, resetMockState } from "@/api";
+import { setMockOrganizeTickMs, waitForMockOrganizeIdle } from "./organize";
 
 describe("mock 知识库 / 整理 / AI 接口符合共享契约", () => {
   beforeEach(() => {
     resetMockState();
+    setMockOrganizeTickMs(0);
   });
 
   it("知识库目录、详情、编辑与删除", async () => {
@@ -40,8 +42,14 @@ describe("mock 知识库 / 整理 / AI 接口符合共享契约", () => {
     const events: OrganizeEvent[] = [];
     const unsubscribe = mockApi.subscribeOrganizeEvents((event) => events.push(event));
     const started = await mockApi.runOrganize({ scope: "item", itemIds: ["item-p1"], requirement: "重点看原理" });
+    await expect(mockApi.runOrganize({ scope: "kb_all" })).rejects.toThrow(/run_in_progress/);
+    await waitForMockOrganizeIdle();
     unsubscribe();
-    expect(events.map((event) => event.type)).toEqual(["run_started", "run_finished"]);
+    const types = events.map((event) => event.type);
+    expect(types[0]).toBe("run_started");
+    expect(types.at(-1)).toBe("run_finished");
+    expect(types).toContain("run_progress");
+    expect(types).toContain("item_done");
 
     const runs = await mockApi.listOrganizeRuns();
     expect(runs.runs[0]?.id).toBe(started.run.id);

@@ -59,7 +59,13 @@ export const realOrganizeApi = {
   subscribeOrganizeEvents(onEvent: (event: OrganizeEvent) => void): () => void {
     const source = new EventSource(ORGANIZE_API.events, { withCredentials: true });
     const handle = (message: MessageEvent<string>) => {
-      const parsed = organizeEventSchema.safeParse(JSON.parse(message.data));
+      let data: unknown;
+      try {
+        data = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+      const parsed = organizeEventSchema.safeParse(data);
       if (parsed.success) onEvent(parsed.data);
     };
     for (const type of EVENT_TYPES) source.addEventListener(type, handle);
