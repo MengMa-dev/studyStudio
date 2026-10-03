@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { SettingsCollect } from "./SettingsCollect";
 import { SettingsData } from "./SettingsData";
+import { SettingsOrganize } from "./SettingsOrganize";
 import { SettingsProfile } from "./SettingsProfile";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
 
@@ -34,7 +35,7 @@ export function SettingsPage({ section }: Props) {
       body = <SettingsPlaceholder title="AI 模型" hint="M4 将在此配置服务商、任务模型与用量上限。本期不显示「首页对话」任务。" />;
       break;
     case "organize":
-      body = <SettingsPlaceholder title="整理规则" hint="M5 将在此配置自动整理触发器。整理记录见侧栏「整理记录」。" />;
+      body = <SettingsOrganize />;
       break;
   }
 

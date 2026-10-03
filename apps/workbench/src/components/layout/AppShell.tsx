@@ -6,6 +6,7 @@ import { api } from "@/api";
 import { useModuleMemoryStore } from "@/stores/module-memory";
 import type { ModuleId } from "@/lib/module-state";
 import { ToastHost } from "@/components/ui/ToastHost";
+import { OrganizeIndicator } from "@/components/organize/OrganizeIndicator";
 import styles from "./AppShell.module.css";
 
 const NAV: Array<{ id: ModuleId; label: string; icon: ReactNode; countKey?: "unread" }> = [
@@ -127,6 +128,7 @@ export function AppShell({ children, wide, fit }: Props) {
           })}
         </nav>
         <div className="sidebar-bottom">
+          <OrganizeIndicator />
           {(() => {
             const link = moduleLinkProps(hrefFor("settings"));
             return (
