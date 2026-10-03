@@ -2,22 +2,35 @@ import { readdirSync, unlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { ACTIVITY_EVENT_TYPES } from "@study-studio/shared";
+import type { TrashRow } from "../../db/types.js";
 import { getStoredCollectorSettings } from "../settings/settings.js";
+import { ITEM_TRASH_KINDS, purgeItemTrash } from "../trash/items.js";
+import { getTrashHandler } from "../trash/registry.js";
+import { toTrashRecord } from "../trash/store.js";
 
 const ACTIVITY_TYPES = [...ACTIVITY_EVENT_TYPES];
 
-/** Delete expired trash rows and unreferenced blobs. */
+/** Physically delete the entities behind expired trash rows, drop the rows, then unreferenced blobs. */
 export function purgeExpiredTrash(db: DatabaseSync, dataDir: string | null, now = new Date()): number {
   const nowIso = now.toISOString();
-  const expired = db.prepare("SELECT id, snapshot FROM trash WHERE expires_at IS NOT NULL AND expires_at <= ?").all(nowIso) as {
-    id: string;
-    snapshot: string | null;
-  }[];
+  const expired = db.prepare("SELECT * FROM trash WHERE expires_at IS NOT NULL AND expires_at <= ?").all(nowIso) as TrashRow[];
   const del = db.prepare("DELETE FROM trash WHERE id = ?");
   for (const row of expired) {
+    const record = toTrashRecord(row);
+    try {
+      if (ITEM_TRASH_KINDS.has(record.kind)) {
+        purgeItemTrash(db, record);
+      } else {
+        const pending = getTrashHandler(record.kind)?.purge({ db, dataDir }, record);
+        if (pending) {
+          void pending.then(() => del.run(row.id)).catch(() => {});
+          continue;
+        }
+      }
+    } catch {
+      continue;
+    }
     del.run(row.id);
-    // Physical cleanup of soft-deleted entities is deferred to a fuller wipe path in M3;
-    // here we only drop the trash snapshot rows that have expired.
   }
   if (dataDir) cleanupOrphanBlobs(db, dataDir);
   return expired.length;
