@@ -248,7 +248,7 @@ test("expired trash is purged by the scheduler cleanup", async (t) => {
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM trash").get()!.n, 0);
 });
 
-test("entries trash rows go through the registered handler, 501 otherwise", async (t) => {
+test("trash rows go through the registered handler, 501 for unknown kinds", async (t) => {
   const { call, db } = await seed(t);
   const record = insertTrashRow(db, {
     kind: "entries",
@@ -259,8 +259,15 @@ test("entries trash rows go through the registered handler, 501 otherwise", asyn
   const listed = trashListResponseSchema.parse((await call("GET", TRASH_API.list)).body);
   assert.deepEqual(listed.entries[0]!.entryIds, ["e1", "e2"]);
 
-  assert.equal((await call("POST", TRASH_API.restore(record.id))).status, 501);
-  assert.equal((await call("DELETE", TRASH_API.purge(record.id))).status, 501);
+  const unhandled = insertTrashRow(db, {
+    kind: "future_kind",
+    targets: {},
+    meta: { title: "x", site: null, itemType: null, removeFromKb: false, removedEntryCount: 0 },
+    payload: null
+  });
+  assert.equal((await call("POST", TRASH_API.restore(unhandled.id))).status, 501);
+  assert.equal((await call("DELETE", TRASH_API.purge(unhandled.id))).status, 501);
+  db.prepare("DELETE FROM trash WHERE id = ?").run(unhandled.id);
 
   const seen: string[] = [];
   const unregister = registerTrashHandler("entries", {

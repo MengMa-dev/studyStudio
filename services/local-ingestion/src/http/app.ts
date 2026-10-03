@@ -33,6 +33,8 @@ import {
   setSessionCookie,
   type AuthState
 } from "./auth.js";
+import { createKbRegistryTrashHandler, KB_TRASH_KIND } from "../domains/kb/trash.js";
+import { registerTrashHandler } from "../domains/trash/registry.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerDataRoutes } from "./routes/data.js";
 import { registerKbRoutes } from "./routes/kb.js";
@@ -244,6 +246,7 @@ export function createApp(services: AppServices): Hono {
 
   api.get("/presence", (c) => c.json({ entries: presence.list() }));
 
+  registerTrashHandler(KB_TRASH_KIND, createKbRegistryTrashHandler({ searchIndex: services.searchIndex }));
   registerWorkbenchRoutes(api, services);
   registerDataRoutes(api, services);
   registerAiRoutes(api, services);

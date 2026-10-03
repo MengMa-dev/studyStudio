@@ -319,9 +319,11 @@ test("delete → trash snapshot → restore brings everything back; kb_ignore is
 
   const trash = db.prepare("SELECT * FROM trash WHERE id = ?").get(result.trashId) as TrashRow;
   assert.equal(trash.kind, "entries");
-  assert.deepEqual(JSON.parse(trash.target_ids!), ["kb-rerank"]);
+  assert.deepEqual(JSON.parse(trash.target_ids!), { itemIds: [], noteIds: [], entryIds: ["kb-rerank"] });
   assert.equal(trash.expires_at, "2026-11-02T08:00:00.000Z");
-  const snapshot = JSON.parse(trash.snapshot!);
+  const stored = JSON.parse(trash.snapshot!);
+  assert.equal(stored.meta.title, "重排");
+  const snapshot = stored.payload;
   assert.equal(snapshot.title, "重排");
   assert.equal(snapshot.edges.length, 4);
   assert.equal(snapshot.entrySources.length, 2);
@@ -341,7 +343,7 @@ test("restore keeps notes the user deleted later, nests inside an outer transact
   assert.equal(result.deletedEntryCount, 2);
   assert.equal((db.prepare("SELECT COUNT(*) AS n FROM kb_ignore").get() as { n: number }).n, 0);
   const trash = db.prepare("SELECT * FROM trash WHERE id = ?").get(result.trashId) as TrashRow;
-  assert.equal(JSON.parse(trash.snapshot!).title, "交叉编码器 等 2 个知识点");
+  assert.equal(JSON.parse(trash.snapshot!).meta.title, "交叉编码器 等 2 个知识点");
 
   db.exec("BEGIN");
   createKbTrashHandler({ searchIndex: index }).restore(db, trash);

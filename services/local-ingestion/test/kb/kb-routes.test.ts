@@ -6,6 +6,9 @@ import {
   kbDeleteResponseSchema,
   kbEntryDetailSchema,
   kbTreeResponseSchema,
+  TRASH_API,
+  trashListResponseSchema,
+  trashRestoreResponseSchema,
   type KbDeleteRequestInput,
   type KbEntryPatch
 } from "@study-studio/shared";
@@ -102,4 +105,23 @@ test("GET impact + DELETE entries", async (t) => {
   assert.equal((await call("GET", KB_API.entry("kb-rerank"))).status, 404);
   assert.equal((await call("DELETE", KB_API.delete, { ids: ["kb-rerank"] })).status, 404);
   assert.equal((await call("DELETE", KB_API.delete, { ids: [] })).status, 422);
+});
+
+test("deleted entries appear in the workbench trash and restore through it", async (t) => {
+  const { call } = setup(t);
+  const del = kbDeleteResponseSchema.parse(await (await call("DELETE", KB_API.delete, { ids: ["kb-rerank"], ignore: false })).json());
+
+  const list = trashListResponseSchema.parse(await (await call("GET", TRASH_API.list)).json());
+  const row = list.entries.find((entry) => entry.id === del.trashId);
+  assert.ok(row);
+  assert.equal(row.kind, "entries");
+  assert.equal(row.title, "重排");
+  assert.deepEqual(row.entryIds, ["kb-rerank"]);
+
+  const restore = await call("POST", TRASH_API.restore(del.trashId));
+  assert.equal(restore.status, 200);
+  assert.equal(trashRestoreResponseSchema.parse(await restore.json()).restoredEntryCount, 1);
+  assert.equal((await call("GET", KB_API.entry("kb-rerank"))).status, 200);
+  const after = trashListResponseSchema.parse(await (await call("GET", TRASH_API.list)).json());
+  assert.ok(!after.entries.some((entry) => entry.id === del.trashId));
 });

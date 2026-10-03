@@ -1,13 +1,13 @@
-import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { KbDeleteImpactResponse, KbDeleteRequest, KbDeleteResponse } from "@study-studio/shared";
 import { withTransaction } from "../../db/database.js";
 import type { KbEdgeRow, KbEdgeSourceRow, KbEntryRow, KbEntrySourceRow, NoteRow } from "../../db/types.js";
 import { loadAliveEntries, loadTreeLayout, parentOf, type TreeLayout } from "./queries.js";
+import { insertTrashRow, TRASH_RETENTION_DAYS } from "../trash/store.js";
 import { removeEntriesFromIndex, type KbSearchIndex } from "./search-sync.js";
 import { KB_TRASH_KIND, type KbTrashSnapshot } from "./trash.js";
 
-export const KB_TRASH_RETENTION_DAYS = 30;
+export const KB_TRASH_RETENTION_DAYS = TRASH_RETENTION_DAYS;
 
 /** Splits `?ids=a,b` and dedupes. */
 export function parseIdList(ids: string): string[] {
@@ -97,7 +97,6 @@ export function deleteKbEntries(
 ): KbDeleteResponse | null {
   const now = options.now ?? new Date();
   const deletedAt = now.toISOString();
-  const expiresAt = new Date(now.getTime() + KB_TRASH_RETENTION_DAYS * 86_400_000).toISOString();
 
   const result = withTransaction(db, (): { response: KbDeleteResponse; targetIds: string[] } | null => {
     const requested = [...new Set(request.ids)];
@@ -161,16 +160,14 @@ export function deleteKbEntries(
       reparentEdges,
       ignoredNames
     };
-    const trashId = `trash-${randomUUID()}`;
-    db.prepare("INSERT INTO trash (id, kind, target_ids, snapshot, deleted_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)").run(
-      trashId,
-      KB_TRASH_KIND,
-      idsJson,
-      JSON.stringify(snapshot),
-      deletedAt,
-      expiresAt
-    );
-    return { response: { trashId, deletedEntryCount: entries.length }, targetIds };
+    const record = insertTrashRow(db, {
+      kind: KB_TRASH_KIND,
+      targets: { entryIds: targetIds },
+      meta: { title: snapshot.title, site: null, itemType: null, removeFromKb: true, removedEntryCount: entries.length },
+      payload: snapshot,
+      now
+    });
+    return { response: { trashId: record.id, deletedEntryCount: entries.length }, targetIds };
   });
 
   if (!result) return null;

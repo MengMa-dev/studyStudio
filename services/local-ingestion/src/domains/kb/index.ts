@@ -3,9 +3,11 @@ export { getKbEntryDetail, parseEvidence } from "./detail.js";
 export { patchKbEntry, recomputeAutoMastery, stripSuggestionSection, type PatchKbEntryResult } from "./edit.js";
 export { deleteKbEntries, getKbDeleteImpact, parseIdList, KB_TRASH_RETENTION_DAYS } from "./delete.js";
 export {
+  createKbRegistryTrashHandler,
   createKbTrashHandler,
   kbTrashHandler,
   parseKbTrashSnapshot,
+  toKbTrashSnapshot,
   KB_TRASH_KIND,
   type KbTrashHandler,
   type KbTrashRestoreResult,

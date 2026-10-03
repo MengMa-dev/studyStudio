@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { KbEdgeRow, KbEdgeSourceRow, KbEntryRow, KbEntrySourceRow, NoteRow, TrashRow } from "../../db/types.js";
 import { ENTRY_COLUMNS, parseJson } from "./queries.js";
+import type { TrashHandler } from "../trash/registry.js";
 import { reindexEntries, type KbSearchIndex } from "./search-sync.js";
 
 export const KB_TRASH_KIND = "entries";
@@ -39,8 +40,14 @@ export type KbTrashHandler = {
   purge(db: DatabaseSync, trashRow: TrashRow): void;
 };
 
+/** Rows are written via `insertTrashRow`, so the KB snapshot sits under `snapshot.payload`. */
 export function parseKbTrashSnapshot(trashRow: Pick<TrashRow, "snapshot">): KbTrashSnapshot {
-  const parsed = parseJson(trashRow.snapshot) as Partial<KbTrashSnapshot> | null;
+  const stored = parseJson(trashRow.snapshot) as { payload?: unknown } | null;
+  return toKbTrashSnapshot(stored && typeof stored === "object" && "payload" in stored ? stored.payload : stored);
+}
+
+export function toKbTrashSnapshot(value: unknown): KbTrashSnapshot {
+  const parsed = value as Partial<KbTrashSnapshot> | null;
   if (!parsed || parsed.kind !== KB_TRASH_KIND || !Array.isArray(parsed.entries)) {
     throw new Error("invalid kb trash snapshot");
   }
@@ -145,3 +152,19 @@ export function createKbTrashHandler(options: { searchIndex?: KbSearchIndex } = 
 }
 
 export const kbTrashHandler: KbTrashHandler = createKbTrashHandler();
+
+/** Adapter for `registerTrashHandler(KB_TRASH_KIND, ...)`. */
+export function createKbRegistryTrashHandler(options: { searchIndex?: KbSearchIndex } = {}): TrashHandler {
+  return {
+    restore({ db }, record) {
+      const snapshot = toKbTrashSnapshot(record.payload);
+      const result = withSavepoint(db, () => restoreSnapshot(db, snapshot));
+      void reindexEntries(options.searchIndex, db, snapshot.entryIds);
+      return result;
+    },
+    purge({ db }, record) {
+      const snapshot = toKbTrashSnapshot(record.payload);
+      withSavepoint(db, () => purgeSnapshot(db, snapshot));
+    }
+  };
+}
