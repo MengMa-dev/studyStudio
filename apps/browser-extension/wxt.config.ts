@@ -2,6 +2,9 @@ import { defineConfig } from "wxt";
 
 export default defineConfig({
   srcDir: ".",
+  zip: {
+    artifactTemplate: "study-studio-extension-{{version}}-{{browser}}.zip"
+  },
   entrypointsDir: "entrypoints",
   manifest: {
     name: "Study Studio Collector",
