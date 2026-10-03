@@ -101,6 +101,10 @@ export function isDirectIntent(text: string): boolean {
   return isOrganizeCommand(text) || isProfileStatement(text);
 }
 
+function isFamiliarQuestion(text: string): boolean {
+  return /熟悉|掌握得?[^，。,]{0,4}(好|不错|扎实|牢)/.test(text) && !/不[太怎么够大]{0,2}(好|熟|牢|扎实)|薄弱/.test(text);
+}
+
 /** Rule-based intent for models without tools (09「不支持 tools 的降级」). */
 export function detectFallbackCalls(text: string, context: ChatContext, today: string): FallbackToolCall[] {
   if (/整理/.test(text)) return [{ tool: "propose_organize", input: { target: organizeTarget(text) } }];
@@ -118,7 +122,7 @@ export function detectFallbackCalls(text: string, context: ChatContext, today: s
   if (range) return [{ tool: "query_timeline", input: range }];
 
   if (/掌握|薄弱|不熟|弱项/.test(text)) {
-    return [{ tool: "list_mastery", input: { level: /熟悉|掌握得?(好|不错)/.test(text) && !/不好|薄弱|不熟/.test(text) ? "familiar" : "weak" } }];
+    return [{ tool: "list_mastery", input: { level: isFamiliarQuestion(text) ? "familiar" : "weak" } }];
   }
 
   const calls: FallbackToolCall[] = [{ tool: "search_knowledge", input: { query: text, k: 6 } }];

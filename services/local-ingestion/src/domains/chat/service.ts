@@ -25,7 +25,7 @@ import type { SearchIndex } from "../../search/index-api.js";
 import { createCitationRegistry } from "./citations.js";
 import type { ChatDataPartEmit } from "./contracts.js";
 import { chatModelKey, isToolsUnsupported, markToolsUnsupported, runFallback } from "./fallback.js";
-import { buildChatSystemPrompt } from "./prompt.js";
+import { NON_RECORD_PREFIX, NO_HIT_TEXT, buildChatSystemPrompt } from "./prompt.js";
 import { appendMessage, listMessages, truncateAfter } from "./store.js";
 import { ORGANIZE_CARD_TEXT, PROFILE_SAVED_TEXT, isDirectIntent, preRetrieve } from "./fallback.js";
 
@@ -137,9 +137,11 @@ export async function startChat(deps: ChatServiceDeps, request: ChatRequest, abo
         writer.write({ type: `data-${part.type}`, data: part.data });
       };
       const fetchedRefs: number[] = [];
+      const mentioned: MentionableRef[] = [];
       const tools = recordFetchedRefs(
         createChatTools({ db, searchIndex: deps.searchIndex, aiGateway, now }, { context: request.context, registry, emit }),
-        fetchedRefs
+        fetchedRefs,
+        mentioned
       );
       const system = buildChatSystemPrompt(db, request.context, now());
       const messages = await convertToModelMessages(historyForModel(history), { tools, ignoreIncompleteToolCalls: true });
@@ -194,7 +196,15 @@ export async function startChat(deps: ChatServiceDeps, request: ChatRequest, abo
 
       let citations = registry.resolve(text);
       if (citations.length === 0 && fetchedRefs.length > 0) citations = registry.resolve(fetchedRefs.map((n) => `[${n}]`).join(""));
-      const data: ChatCitationsData = { citations, nonRecord: registry.size() === 0 && citations.length === 0 };
+      if (citations.length === 0)
+        citations = registry.resolve(
+          mentioned
+            .filter((ref) => text.includes(ref.name))
+            .map((ref) => `[${ref.n}]`)
+            .join("")
+        );
+      const nonRecord = citations.length === 0 && (registry.size() === 0 || text.includes(NON_RECORD_PREFIX) || text.trimStart().startsWith(NO_HIT_TEXT));
+      const data: ChatCitationsData = { citations, nonRecord };
       writer.write({ type: CHAT_DATA_PART_TYPES.citations, data });
       writer.write({ type: "finish" });
     },
@@ -222,7 +232,27 @@ const PRIMARY_REFS: Partial<Record<string, (output: Record<string, unknown>) => 
  * Models often answer from these tools without writing `[n]`; their primary objects are then
  * listed as the basis instead of showing none.
  */
-function recordFetchedRefs<T extends ToolSet>(tools: T, refs: number[]): T {
+type MentionableRef = { n: number; name: string };
+
+/** Search hits are only a fallback basis when the answer names them verbatim. */
+function searchMentions(output: Record<string, unknown>): MentionableRef[] {
+  const results = (output.results as { ref?: unknown; name?: unknown; title?: unknown }[] | undefined) ?? [];
+  return results.flatMap((result) => {
+    const name = typeof result.name === "string" ? result.name : typeof result.title === "string" ? result.title : "";
+    return typeof result.ref === "number" && name.length >= 2 ? [{ n: result.ref, name }] : [];
+  });
+}
+
+function recordFetchedRefs<T extends ToolSet>(tools: T, refs: number[], mentioned: MentionableRef[]): T {
+  const search = tools.search_knowledge as ExecutableTool | undefined;
+  const searchExecute = search?.execute;
+  if (search && searchExecute) {
+    search.execute = async (...args: unknown[]) => {
+      const output = await searchExecute(...args);
+      if (output && typeof output === "object") mentioned.push(...searchMentions(output as Record<string, unknown>));
+      return output;
+    };
+  }
   for (const [name, pick] of Object.entries(PRIMARY_REFS)) {
     const target = tools[name] as ExecutableTool | undefined;
     const execute = target?.execute;

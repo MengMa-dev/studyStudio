@@ -41,6 +41,8 @@ test("short organize commands skip the model; questions about organizing do not"
 test("profile statements are saved directly; questions about oneself are not", () => {
   for (const text of ["我是前端开发", "我最近在学 Agent 架构", "最近在学 Rust"]) assert.equal(isProfileStatement(text), true, text);
   for (const text of ["我是谁", "我是不是学过 RAG？", "我最近学了什么", "RAG 是什么"]) assert.equal(isProfileStatement(text), false, text);
+  assert.deepEqual(detectFallbackCalls("我掌握得比较好的知识有哪些", { page: "home" }, "2026-10-03"), [{ tool: "list_mastery", input: { level: "familiar" } }]);
+  assert.deepEqual(detectFallbackCalls("哪些掌握得不太好", { page: "home" }, "2026-10-03"), [{ tool: "list_mastery", input: { level: "weak" } }]);
   assert.deepEqual(detectFallbackCalls("最近在学 Rust", { page: "home" }, "2026-10-03"), [{ tool: "record_learner_profile", input: { direction: "Rust" } }]);
 });
 
