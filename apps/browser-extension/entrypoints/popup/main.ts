@@ -9,6 +9,8 @@ type Status = {
   connection?: { ingestionUrl: string; pairingToken: string };
 };
 
+let connectionFilled = false;
+
 function setConnectionUi(status: Status) {
   const state = status.connectivity?.state ?? "unknown";
   const dot = el("dot");
@@ -30,18 +32,23 @@ function setConnectionUi(status: Status) {
   syncBtn.disabled = !online;
   syncBtn.title = online ? "立即同步" : "本地服务未连接";
 
-  const progress = el("progress");
-  const bar = progress.firstElementChild as HTMLElement;
-  if (status.sync?.running && status.sync.total > 0) {
-    progress.style.display = "block";
-    bar.style.width = `${Math.min(100, Math.round((status.sync.done / status.sync.total) * 100))}%`;
-  } else if (!status.sync?.running) {
-    progress.style.display = "none";
-  }
+  setProgressUi(status.sync);
 
-  if (status.connection) {
+  if (status.connection && !connectionFilled) {
     input("url").value = status.connection.ingestionUrl;
     input("token").value = status.connection.pairingToken;
+    connectionFilled = true;
+  }
+}
+
+function setProgressUi(sync: Status["sync"]) {
+  const progress = el("progress");
+  const bar = progress.firstElementChild as HTMLElement;
+  if (sync?.running && sync.total > 0) {
+    progress.style.display = "block";
+    bar.style.width = `${Math.min(100, Math.round((sync.done / sync.total) * 100))}%`;
+  } else {
+    progress.style.display = "none";
   }
 }
 
@@ -66,8 +73,7 @@ el<HTMLButtonElement>("sync").addEventListener("click", async () => {
 
 browser.runtime.onMessage.addListener((message: { type?: string; progress?: Status["sync"]; synced?: number }) => {
   if (message.type === "study-studio:sync-progress" && message.progress) {
-    setConnectionUi({ sync: message.progress, counts: { knowledge: 0, records: 0, total: message.progress.total } });
-    void refresh();
+    setProgressUi(message.progress);
   }
   if (message.type === "study-studio:sync-done") {
     el("toast").textContent = `已同步 ${message.synced ?? 0} 条知识到 Study Studio`;

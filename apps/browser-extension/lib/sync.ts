@@ -141,6 +141,10 @@ export async function syncPending(reason = "auto"): Promise<{ synced: number; fa
     let synced = 0;
     let failed = 0;
     const initial = await pendingCounts();
+    if (initial.total === 0) {
+      if (reason === "manual") browser.runtime.sendMessage({ type: "study-studio:sync-done", synced: 0, knowledge: 0 }).catch(() => {});
+      return { synced: 0, failed: 0, remaining: 0 };
+    }
     publishProgress({ done: 0, total: initial.total, running: true });
 
     while (true) {
