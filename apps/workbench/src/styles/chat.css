@@ -44,6 +44,7 @@
 .chat-cite a {
   display: inline-block;
   min-width: 16px;
+  line-height: 16px;
   padding: 0 4px;
   border-radius: 8px;
   background: var(--primary-soft);

@@ -90,11 +90,22 @@ export function isOrganizeCommand(text: string): boolean {
   return trimmed.length <= 30 && /整理(?![了过])/.test(trimmed) && !/[?？]|什么|吗|怎么|如何/.test(trimmed);
 }
 
+/** 「我是产品经理」「我最近在学 AI」: saved directly; models tend to reply 「已记录」 without calling the tool. */
+export function isProfileStatement(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length <= 40 && /^(我是|我最近在学|我最近在研究|最近在学)/.test(trimmed) && !/[?？]|什么|吗|谁|哪/.test(trimmed);
+}
+
+/** Intents answered without the model (tool call + fixed reply). */
+export function isDirectIntent(text: string): boolean {
+  return isOrganizeCommand(text) || isProfileStatement(text);
+}
+
 /** Rule-based intent for models without tools (09「不支持 tools 的降级」). */
 export function detectFallbackCalls(text: string, context: ChatContext, today: string): FallbackToolCall[] {
   if (/整理/.test(text)) return [{ tool: "propose_organize", input: { target: organizeTarget(text) } }];
 
-  const direction = /我最近在学(.+)/.exec(text)?.[1];
+  const direction = /(?:我最近在学|我最近在研究|最近在学)(.+)/.exec(text)?.[1];
   const role = /我是(.+)/.exec(text)?.[1];
   if (direction || role) {
     const input: Record<string, unknown> = {};
@@ -150,18 +161,36 @@ export type FallbackParams = {
 };
 
 export const ORGANIZE_CARD_TEXT = "请在下方卡片中确认整理范围。";
+export const PROFILE_SAVED_TEXT = "好的，已记录。";
+
+const READ_ONLY_TOOLS = new Set<ChatToolName>(["query_timeline", "search_knowledge", "get_entry", "get_item", "list_mastery"]);
+
+/**
+ * Rule-based read-only retrieval run before every model call, so answers stay grounded (and
+ * citable) even when the model skips tool calls — small local models often do after the first turn.
+ */
+export async function preRetrieve(tools: ToolSet, text: string, context: ChatContext, now: Date): Promise<string> {
+  const calls = detectFallbackCalls(text, context, localDay(now)).filter((call) => READ_ONLY_TOOLS.has(call.tool));
+  if (calls.length === 0) return "";
+  const outputs: string[] = [];
+  for (const [index, call] of calls.entries()) {
+    outputs.push(`### ${call.tool} ${JSON.stringify(call.input)}\n${JSON.stringify(await runTool(tools, call, index))}`);
+  }
+  return outputs.join("\n\n");
+}
 
 export async function runFallback(params: FallbackParams): Promise<{ text: string; model: string | null }> {
   const calls = detectFallbackCalls(params.userText, params.context, localDay(params.now));
   const outputs: { call: FallbackToolCall; output: unknown }[] = [];
   for (const [index, call] of calls.entries()) outputs.push({ call, output: await runTool(params.tools, call, index) });
 
-  if (calls[0]?.tool === "propose_organize") {
+  const direct = calls[0]?.tool === "propose_organize" ? ORGANIZE_CARD_TEXT : calls[0]?.tool === "record_learner_profile" ? PROFILE_SAVED_TEXT : null;
+  if (direct) {
     const id = "fallback-text";
     params.writer.write({ type: "text-start", id });
-    params.writer.write({ type: "text-delta", id, delta: ORGANIZE_CARD_TEXT });
+    params.writer.write({ type: "text-delta", id, delta: direct });
     params.writer.write({ type: "text-end", id });
-    return { text: ORGANIZE_CARD_TEXT, model: null };
+    return { text: direct, model: null };
   }
 
   const evidence = outputs.map(({ call, output }) => `### ${call.tool} ${JSON.stringify(call.input)}\n${JSON.stringify(output)}`).join("\n\n");

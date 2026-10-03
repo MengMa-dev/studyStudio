@@ -7,7 +7,7 @@ import type { UIMessage } from "ai";
 import { openDatabase } from "../../src/db/database.js";
 import { saveLearnerProfile } from "../../src/domains/data/profile.js";
 import { createCitationRegistry } from "../../src/domains/chat/citations.js";
-import { detectFallbackCalls, detectTimeRange, isOrganizeCommand } from "../../src/domains/chat/fallback.js";
+import { detectFallbackCalls, detectTimeRange, isOrganizeCommand, isProfileStatement } from "../../src/domains/chat/fallback.js";
 import { buildChatSystemPrompt } from "../../src/domains/chat/prompt.js";
 import { historyForModel, trimHistory } from "../../src/domains/chat/service.js";
 import { appendMessage, clearMessages, listMessages, truncateAfter } from "../../src/domains/chat/store.js";
@@ -36,6 +36,12 @@ test("citation registry dedupes objects and keeps only registered [n] in order",
 test("short organize commands skip the model; questions about organizing do not", () => {
   for (const text of ["整理", "帮我整理该页知识点", "整理全部未整理内容"]) assert.equal(isOrganizeCommand(text), true, text);
   for (const text of ["我今天整理了什么", "整理是什么意思？", "怎么整理知识库", "RAG 是什么"]) assert.equal(isOrganizeCommand(text), false, text);
+});
+
+test("profile statements are saved directly; questions about oneself are not", () => {
+  for (const text of ["我是前端开发", "我最近在学 Agent 架构", "最近在学 Rust"]) assert.equal(isProfileStatement(text), true, text);
+  for (const text of ["我是谁", "我是不是学过 RAG？", "我最近学了什么", "RAG 是什么"]) assert.equal(isProfileStatement(text), false, text);
+  assert.deepEqual(detectFallbackCalls("最近在学 Rust", { page: "home" }, "2026-10-03"), [{ tool: "record_learner_profile", input: { direction: "Rust" } }]);
 });
 
 test("fallback intent rules map phrases to tools", () => {

@@ -27,9 +27,8 @@ import type { ChatDataPartEmit } from "./contracts.js";
 import { chatModelKey, isToolsUnsupported, markToolsUnsupported, runFallback } from "./fallback.js";
 import { buildChatSystemPrompt } from "./prompt.js";
 import { appendMessage, listMessages, truncateAfter } from "./store.js";
-import { ORGANIZE_CARD_TEXT, isOrganizeCommand } from "./fallback.js";
+import { ORGANIZE_CARD_TEXT, PROFILE_SAVED_TEXT, isDirectIntent, preRetrieve } from "./fallback.js";
 
-const PROFILE_SAVED_TEXT = "好的，已记录。";
 const EMPTY_ANSWER_TEXT = "模型没有返回内容，请重试。";
 import { createChatTools } from "./tools/index.js";
 
@@ -161,12 +160,15 @@ export async function startChat(deps: ChatServiceDeps, request: ChatRequest, abo
 
       writer.write({ type: "start" });
       let text: string;
-      if (isOrganizeCommand(userText) || isToolsUnsupported(chatModelKey(primary.providerId, primary.model))) {
+      if (isDirectIntent(userText) || isToolsUnsupported(chatModelKey(primary.providerId, primary.model))) {
         ({ text, model: modelLabel } = await fallback());
       } else {
         try {
+          const evidence = await preRetrieve(tools, userText, request.context, now());
           const chat = await aiGateway.streamChat({
-            system,
+            system: evidence
+              ? `${system}\n\n## 已检索资料\n系统已按问题预先检索，回答优先基于以下结果并引用其中的 ref；不够时再调用工具。\n\n${evidence}`
+              : system,
             messages,
             tools,
             stopWhen: stepCountIs(MAX_STEPS),

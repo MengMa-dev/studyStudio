@@ -7,6 +7,7 @@
  *   --keep   keep the snapshot dir for inspection
  * Reads STUDY_STUDIO_DATA_DIR (default ./StudyStudioData). Writes tmp/chat-eval-<label>.json.
  */
+import { request } from "node:http";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -88,6 +89,24 @@ function questions(targets: ReturnType<typeof pickTargets>): Question[] {
 
 type Chunk = { type: string; [key: string]: unknown };
 
+/** node:http instead of fetch: undici aborts bodies idle for 5 min, which slow local models exceed. */
+function post(port: number, path: string, token: string, body: string): Promise<{ ok: boolean; status: number; text: string }> {
+  return new Promise((resolvePost, reject) => {
+    const req = request(
+      { host: "127.0.0.1", port, path, method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` } },
+      (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => (text += chunk));
+        res.on("end", () => resolvePost({ ok: (res.statusCode ?? 0) < 300, status: res.statusCode ?? 0, text }));
+        res.on("error", reject);
+      }
+    );
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
 function parseSse(text: string): Chunk[] {
   return text
     .split("\n")
@@ -119,12 +138,13 @@ async function main() {
     if (only && !only.includes(index + 1)) continue;
     seq += 1;
     const started = Date.now();
-    const response = await fetch(`http://127.0.0.1:${port}/v1/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ message: { id: `eval-${seq}`, role: "user", parts: [{ type: "text", text: q.text }] }, context: q.context })
-    });
-    const raw = await response.text();
+    const response = await post(
+      port,
+      "/v1/chat",
+      token,
+      JSON.stringify({ message: { id: `eval-${seq}`, role: "user", parts: [{ type: "text", text: q.text }] }, context: q.context })
+    );
+    const raw = response.text;
     const chunks = response.ok ? parseSse(raw) : [];
     const text = chunks
       .filter((chunk) => chunk.type === "text-delta")
