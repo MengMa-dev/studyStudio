@@ -304,6 +304,7 @@ export class OrganizeWorker {
     this.emit({ type: "run_started", runId, trigger: spec.trigger, scope: spec.scope, total: 0 });
     this.abort = new AbortController();
     let lastProgressWrite = 0;
+    let lastStage: string | null = null;
     try {
       const result = await executeRun(
         { db: this.db, gateway: this.options.getGateway(), searchIndex: this.options.getSearchIndex(), now: this.options.now },
@@ -312,8 +313,10 @@ export class OrganizeWorker {
         {
           onProgress: (progress) => {
             const nowMs = Date.now();
-            if (nowMs - lastProgressWrite > 250 || progress.done === progress.total) {
+            // Stage changes are always persisted: the next await may be a minutes-long model call.
+            if (progress.stage !== lastStage || nowMs - lastProgressWrite > 250 || progress.done === progress.total) {
               lastProgressWrite = nowMs;
+              lastStage = progress.stage;
               updateRun(this.db, runId, { progress: { stage: progress.stage, done: progress.done, total: progress.total } });
             }
             this.emit({ type: "run_progress", runId, ...progress });

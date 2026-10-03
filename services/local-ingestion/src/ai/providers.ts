@@ -1,6 +1,6 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { EmbeddingModel, LanguageModel } from "ai";
+import { defaultSettingsMiddleware, wrapLanguageModel, type EmbeddingModel, type LanguageModel } from "ai";
 import { createOllama } from "ollama-ai-provider-v2";
 import { createMockProvider, type MockProviderOptions } from "./mock";
 import type { EmbeddingModelHandle, LanguageModelHandle, ProviderConfig, ProviderType } from "./types";
@@ -14,6 +14,8 @@ export type ProviderRuntime = {
 };
 
 const DEFAULT_EMBED_DIMS = 768;
+/** Ollama defaults to a 4096-token window and silently truncates longer prompts (judge inputs often exceed it). */
+const OLLAMA_NUM_CTX = 16384;
 
 export type CreateProviderRuntimeOptions = {
   mock?: MockProviderOptions;
@@ -44,7 +46,10 @@ export function createProviderRuntime(config: ProviderConfig, options: CreatePro
       return {
         type: "ollama",
         languageModel: (modelId) => ({
-          model: ollama(modelId),
+          model: wrapLanguageModel({
+            model: ollama(modelId),
+            middleware: defaultSettingsMiddleware({ settings: { providerOptions: { ollama: { options: { num_ctx: OLLAMA_NUM_CTX } } } } })
+          }),
           wrapTopLevelUnion: false,
           supportsStructuredOutputs: true
         }),
