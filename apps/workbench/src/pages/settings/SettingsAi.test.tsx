@@ -28,13 +28,13 @@ describe("设置 · AI 模型", () => {
   });
   afterEach(cleanup);
 
-  it("展示用量、服务商和四个任务（不含首页对话）", async () => {
+  it("展示用量、服务商和五个任务（含首页对话）", async () => {
     renderSection();
     expect(await screen.findByText("模型服务商")).toBeInTheDocument();
     expect(screen.getByLabelText("今日用量")).toHaveTextContent("17.6k");
     expect(providerRow("Gemini")).toHaveTextContent("已连接 · 用于 2 项任务");
-    for (const label of ["学习判定", "知识处理", "词条重写", "向量 Embedding"]) expect(screen.getByText(label)).toBeInTheDocument();
-    expect(screen.queryByText(/首页对话\s*$/)).not.toBeInTheDocument();
+    for (const label of ["学习判定", "知识处理", "词条重写", "向量 Embedding", "首页对话"]) expect(screen.getByText(label)).toBeInTheDocument();
+    expect(document.querySelector('[data-task="chat"]')).toHaveTextContent("需要支持 tools 调用");
     expect(document.body.textContent).not.toContain("AIzaSyMockKey1234");
   });
 

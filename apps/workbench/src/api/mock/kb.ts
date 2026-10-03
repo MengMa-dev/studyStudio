@@ -595,6 +595,11 @@ export function mockKbEntryName(id: string): string {
   return entries.find((candidate) => candidate.id === id)?.name ?? id;
 }
 
+export function mockKbEntryBriefs(): Array<{ id: string; name: string; mastery: number | null }> {
+  reconcileTrash();
+  return entries.map((candidate) => ({ id: candidate.id, name: candidate.name, mastery: candidate.mastery }));
+}
+
 export function mockKbEntryNotes(ids: string[]): Note[] {
   return getMockState().notes.filter((note) => note.scope === "entry" && note.targetId !== null && ids.includes(note.targetId));
 }

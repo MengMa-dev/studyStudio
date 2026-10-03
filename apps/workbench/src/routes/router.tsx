@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { Outlet, createHashHistory, createRootRoute, createRoute, createRouter, redirect, useRouterState } from "@tanstack/react-router";
 import { kbEntryKindSchema } from "@study-studio/shared";
 import { z } from "zod";
+import { ChatDock } from "@/components/chat/ChatDock";
 import { AppShell } from "@/components/layout/AppShell";
 import { OrganizeDialogHost } from "@/components/organize/OrganizeDialog";
 import { OrganizeEventsBridge } from "@/components/organize/OrganizeEventsBridge";
@@ -17,6 +18,7 @@ import { RunsPage } from "@/pages/runs/RunsPage";
 import { SettingsPage } from "@/pages/settings/SettingsPage";
 import { api } from "@/api";
 import "@/styles/kb.css";
+import "@/styles/chat.css";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />
@@ -32,6 +34,7 @@ const appRoute = createRoute({
         <Outlet />
         <OrganizeDialogHost />
         <OrganizeEventsBridge />
+        <ChatDock />
       </AppShell>
     );
   },

@@ -28,7 +28,8 @@ export const TASK_META: { task: AiTaskName; label: string; en: string; desc: str
   { task: "learning_judge", label: "学习判定", en: "Learning judge", desc: "只读行为摘要（搜索词、标题、提问、时长），调用最频繁，建议本地小模型" },
   { task: "knowledge_processing", label: "知识处理", en: "Knowledge processing", desc: "判定 + 抽取 + 词条对齐 + 补丁一次完成，需要读正文，建议强模型" },
   { task: "entry_rewrite", label: "词条重写", en: "Entry rewrite", desc: "仅手动重新整理、过期词条和全量整理时调用，中档模型即可" },
-  { task: "embedding", label: "向量 Embedding", en: "Embedding", desc: "整理时检索与写入同步调用，建议本地；更换后需在「数据与隐私」重建索引" }
+  { task: "embedding", label: "向量 Embedding", en: "Embedding", desc: "整理时检索与写入同步调用，建议本地；更换后需在「数据与隐私」重建索引" },
+  { task: "chat", label: "首页对话", en: "Chat", desc: "回答学习记录与知识库问题，需要支持 tools 调用；未配置时使用「知识处理」的模型" }
 ];
 
 export function providerStatusText(provider: AiProvider): string {
