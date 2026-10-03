@@ -19,6 +19,9 @@ export const MASTERY_K = { sources: 3, readingSeconds: 1800, qa: 2, notes: 2 } a
 /** Directory / category panel threshold for「薄弱词条」. */
 export const WEAK_MASTERY_THRESHOLD = 0.4;
 
+/** Same cut as the workbench「熟悉」label (`apps/workbench/src/lib/kb.ts`). */
+export const FAMILIAR_MASTERY_THRESHOLD = 0.65;
+
 export const EMPTY_MASTERY_SIGNALS: MasterySignals = { sourceCount: 0, readingSeconds: 0, qaCount: 0, noteCount: 0 };
 
 export function saturate(x: number, k: number): number {

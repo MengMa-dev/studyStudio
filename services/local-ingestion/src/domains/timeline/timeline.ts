@@ -8,11 +8,10 @@ import {
   type TimelineResponse,
   type TimelineRowType
 } from "@study-studio/shared";
+import { WEAK_MASTERY_THRESHOLD } from "../kb/mastery.js";
 import { collectActivities, type Activity } from "./activity.js";
 import { addDays, dayLabel, daysBetween, localDay, resolveRange, weekdayLabel } from "./time.js";
 
-/** Entries with mastery below this count as weak. */
-export const WEAK_MASTERY = 0.3;
 const STREAK_LOOKBACK_DAYS = 366;
 
 function secondsByDay(activities: Activity[]): Map<string, number> {
@@ -68,7 +67,7 @@ export function getPending(db: DatabaseSync): OverviewPending {
   return {
     unread: count("SELECT COUNT(*) AS n FROM items WHERE deleted_at IS NULL AND read_status = 'unread'"),
     pendingOrganize: count("SELECT COUNT(*) AS n FROM items WHERE deleted_at IS NULL AND organize_status IN ('pending', 'failed')"),
-    weakEntries: count("SELECT COUNT(*) AS n FROM kb_entries WHERE deleted_at IS NULL AND mastery IS NOT NULL AND mastery < ?", WEAK_MASTERY)
+    weakEntries: count("SELECT COUNT(*) AS n FROM kb_entries WHERE deleted_at IS NULL AND mastery IS NOT NULL AND mastery < ?", WEAK_MASTERY_THRESHOLD)
   };
 }
 
