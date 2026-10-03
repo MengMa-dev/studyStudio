@@ -2,12 +2,49 @@
 
 本仓库实现本地优先的学习内容采集最小链路：浏览器扩展或桌面内置浏览器中的采集器发出标准事件，本地接收服务把时间线和原始内容写入本地目录。方案见 `docs/collection-plan.md`。
 
-## 运行
+## 安装与使用（发布版）
+
+要求 Node.js ≥ 22.13（23.x 需 ≥ 23.5），本地数据库使用内置 `node:sqlite`；版本不满足时 CLI 会提示并退出。
+
+```bash
+npx study-studio                    # 启动服务并在浏览器打开工作台
+npx study-studio --data-dir ~/Notes/StudyStudioData --port 43119 --no-open
+npx study-studio --help
+```
+
+- 数据目录默认 `~/StudyStudioData`（`--data-dir` > `STUDY_STUDIO_DATA_DIR` > 默认）；端口默认 `43118`（`--port` > `STUDY_STUDIO_PORT`）。
+- 启动后终端打印工作台一次性登录链接和配对令牌；`--no-open` 时手动打开该链接。
+- `sqlite-vec` 无当前平台预编译二进制时自动关闭向量检索（终端有提示），其余功能不受影响。
+- 开机自启（默认关闭）：先 `npm i -g study-studio`，再 `study-studio autostart enable`（macOS launchd / Linux systemd 用户服务 / Windows 计划任务）；`autostart status`、`autostart disable` 查看与关闭。
+
+### 安装浏览器扩展
+
+1. 从发布页下载 `study-studio-extension-<版本>-chrome.zip` 并解压（或自行运行 `npm run pack:extension`，产物在 `apps/browser-extension/.output/`）。
+2. Chrome 打开 `chrome://extensions`，开启「开发者模式」，「加载已解压的扩展程序」选择解压后的目录。
+3. 在扩展弹窗中填入终端打印的配对令牌，显示已连接即可。
+
+## 开发
 
 ```bash
 npm install
-npm run ingestion
+npm run dev        # 本地服务（tsx watch，:43118）+ 工作台 Vite dev server（真实 API，:5173/app/），Ctrl+C 一起退出
+npm run ingestion  # 只启动本地服务
 ```
+
+`npm run dev` 与 `npm run ingestion` 的数据目录默认为仓库内 `./StudyStudioData`。工作台单独以 mock 数据开发：`npm run dev -w @study-studio/workbench`。
+
+## 构建与发布
+
+```bash
+npm run build          # shared 类型检查 → 工作台 vite build → study-studio 包（tsup）
+npm start              # 运行构建好的包（等价于 npx study-studio）
+npm run build:release  # build + 扩展 wxt zip + npm pack，产物汇总到 release/
+npm run pack:extension # 只打包扩展 zip
+```
+
+发布的 npm 包源码在 `packages/cli`（包名 `study-studio`，仓库根包为私有的 `study-studio-monorepo`）：`bin/study-studio.js` 先检测 Node 版本再加载 `dist/server/cli.js`（tsup 打包本地服务及其依赖，仅 `sqlite-vec` 作为运行时依赖安装），`dist/migrations/` 为 SQL 迁移，`dist/workbench/` 为工作台静态文件（服务托管于 `/app`）。发布：`npm run build` 后 `npm publish -w study-studio`。
+
+## 旧版演示
 
 服务默认监听 `127.0.0.1:43118`，首次启动会在终端显示配对令牌。另开终端运行：
 
@@ -65,5 +102,6 @@ node scripts/debug-live-chat.js https://chat.deepseek.com/ "问题"       # 只�
 - `packages/collector-runtime`：宿主无关的采集运行时（门槛判定、网页提取级联、站点/对话适配器、SPA 导航）。
 - `packages/collector-contract`：事件构造与校验（基于 `packages/shared` 的 schema）。
 - `packages/shared`：前后端与扩展共用的 Zod schema（事件、设置）与域名规则。
+- `packages/cli`：发布用 npm 包 `study-studio`（CLI、Node 版本检测、开机自启、tsup 打包配置）。
 - `services/local-ingestion`：本地接收服务（校验、按 canonical URL 去重、时间线、inbox、阅读时长累加）。
 - `apps/browser-extension`、`apps/desktop`：两个宿主的最小桥接。
