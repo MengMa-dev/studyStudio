@@ -4,3 +4,4 @@ export * from "./chunk";
 export * from "./vectors";
 export * from "./hybrid";
 export * from "./index-api";
+export * from "./background";

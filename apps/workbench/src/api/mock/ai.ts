@@ -76,6 +76,14 @@ function createTasks(): AiTaskModel[] {
   ];
 }
 
+const MOCK_MODELS: Record<AiProviderType, string[]> = {
+  ollama: ["qwen2.5:7b", "nomic-embed-text:latest", "bge-m3:latest"],
+  google: ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-embedding-2"],
+  "openai-compatible": ["nvidia/nemotron-3-super-120b-a12b:free", "qwen/qwen3.8-27b:free", "openai/gpt-oss-120b"],
+  anthropic: ["claude-sonnet-4.5"],
+  mock: ["deterministic", "deterministic-embed"]
+};
+
 let providers = createProviders();
 let tasks = createTasks();
 let dailyTokenLimit: number | null = 200_000;
@@ -135,28 +143,42 @@ export const mockAiApi = {
   async patchAiProvider(id: string, patch: AiProviderPatch) {
     const body = aiProviderPatchSchema.parse(patch);
     const provider = findProvider(id);
+    const connectionChanged =
+      (body.type !== undefined && body.type !== provider.type) ||
+      (body.baseUrl !== undefined && body.baseUrl !== provider.baseUrl) ||
+      (body.apiKey !== undefined && body.apiKey !== provider.apiKey);
     Object.assign(provider, Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined)));
+    if (connectionChanged) {
+      provider.status = "unconfigured";
+      provider.checkedAt = null;
+    }
     return toResponse(provider);
   },
 
   async deleteAiProvider(id: string) {
-    if (tasks.some((task) => task.providerId === id || task.fallbackProviderId === id)) throw new Error("API 409: provider_in_use");
+    findProvider(id);
+    const using = tasks.filter((task) => task.providerId === id || task.fallbackProviderId === id).map((task) => task.task);
+    if (using.length) throw new Error(`API 409: ${JSON.stringify({ error: "provider_in_use", tasks: using })}`);
     providers = providers.filter((provider) => provider.id !== id);
     return aiProviderDeleteResponseSchema.parse({ ok: true });
   },
 
   async testAiProvider(id: string, overrides: AiProviderTestRequest = {}) {
-    aiProviderTestRequestSchema.parse(overrides);
+    const body = aiProviderTestRequestSchema.parse(overrides);
     const provider = findProvider(id);
-    const ok = provider.type === "ollama" || provider.apiKey !== null || overrides.apiKey !== undefined;
-    provider.status = ok ? "connected" : "error";
-    provider.checkedAt = new Date().toISOString();
+    const ok = provider.type === "ollama" || provider.type === "mock" || provider.apiKey !== null || body.apiKey !== undefined;
+    const status = ok ? "connected" : "error";
+    const checkedAt = new Date().toISOString();
+    if (body.apiKey === undefined && body.baseUrl === undefined) {
+      provider.status = status;
+      provider.checkedAt = checkedAt;
+    }
     return aiProviderTestResponseSchema.parse({
       ok,
       latencyMs: 120,
-      ...(ok ? { models: provider.defaultModel ? [provider.defaultModel] : [] } : { error: "missing api key" }),
-      status: provider.status,
-      checkedAt: provider.checkedAt
+      ...(ok ? { models: MOCK_MODELS[provider.type] } : { error: "missing api key" }),
+      status,
+      checkedAt
     });
   },
 
@@ -170,6 +192,11 @@ export const mockAiApi = {
 
   async putAiTasks(update: AiTasksUpdateInput) {
     const body = aiTasksUpdateSchema.parse(update);
+    for (const next of body.tasks) {
+      for (const providerId of [next.providerId, next.fallbackProviderId]) {
+        if (providerId) findProvider(providerId);
+      }
+    }
     for (const next of body.tasks) {
       tasks = [...tasks.filter((task) => task.task !== next.task), next];
     }
