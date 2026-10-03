@@ -101,7 +101,9 @@ export class AiGateway {
   }
 
   private getRuntime(provider: ProviderConfig): ProviderRuntime {
-    const cached = this.runtimeCache.get(provider.id);
+    // Keyed by connection fields so settings edits take effect without a restart.
+    const cacheKey = [provider.id, provider.type, provider.baseUrl ?? "", provider.apiKey ?? ""].join("\0");
+    const cached = this.runtimeCache.get(cacheKey);
     if (cached) return cached;
     const createOptions: CreateProviderRuntimeOptions = { mock: this.mockOptions };
     let runtime: ProviderRuntime;
@@ -122,7 +124,7 @@ export class AiGateway {
     } else {
       runtime = createProviderRuntime(provider, createOptions);
     }
-    this.runtimeCache.set(provider.id, runtime);
+    this.runtimeCache.set(cacheKey, runtime);
     return runtime;
   }
 

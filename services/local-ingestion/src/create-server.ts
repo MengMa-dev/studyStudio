@@ -3,7 +3,13 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";
+import { AiGateway, type AiGatewayOptions } from "./ai/gateway.js";
+import { SecretsFile, secretsPathFor } from "./ai/secrets.js";
+import { importAiSeedIfEmpty } from "./ai/seed.js";
+import { SqliteAiConfigStore, SqliteUsageStore } from "./ai/sqlite-stores.js";
 import { openDatabase, type AppDatabase } from "./db/database.js";
+import { createChunkIndexer, type ChunkIndexer } from "./search/background.js";
+import { createSearchIndex, type IndexableDocument, type SearchIndex } from "./search/index-api.js";
 import { PresenceStore } from "./domains/capture/presence.js";
 import { ensureDefaultSettings } from "./domains/settings/settings.js";
 import { startScheduler, type Scheduler } from "./jobs/scheduler.js";
@@ -20,6 +26,13 @@ export type CreateIngestionServerOptions = {
   /** Disable cron jobs (tests). */
   disableScheduler?: boolean;
   workbenchDist?: string;
+  /** Gateway extras (mock fixtures / rules, retry) — tests and fixture replay. */
+  ai?: Omit<AiGatewayOptions, "configStore" | "usageStore">;
+  /** `chunks_vec` dimensions; must match the embedding model (default 768, nomic-embed-text). */
+  embeddingDimensions?: number;
+  /** Skip the startup backfill of KB entries missing chunks (tests). */
+  disableBackgroundIndex?: boolean;
+  onIndexError?: (error: unknown, doc: IndexableDocument) => void;
 };
 
 export type IngestionServer = {
@@ -29,6 +42,10 @@ export type IngestionServer = {
   db: AppDatabase;
   auth: ReturnType<typeof createAuthState>;
   scheduler: Scheduler | null;
+  aiGateway: AiGateway;
+  aiConfig: SqliteAiConfigStore;
+  searchIndex: SearchIndex;
+  chunkIndexer: ChunkIndexer;
 };
 
 function ensurePairingToken(dataDir: string, pairingToken: string): string {
@@ -51,6 +68,26 @@ export async function createIngestionServer(options: CreateIngestionServerOption
 
   ensureDefaultSettings(appDb.db);
 
+  const aiConfig = new SqliteAiConfigStore(appDb.db, new SecretsFile(secretsPathFor(dataDir)));
+  importAiSeedIfEmpty(aiConfig, dataDir);
+  const aiGateway = new AiGateway({
+    ...options.ai,
+    configStore: aiConfig,
+    usageStore: new SqliteUsageStore(appDb.db),
+    embeddingDimensions: options.ai?.embeddingDimensions ?? options.embeddingDimensions
+  });
+  const searchIndex = createSearchIndex(appDb.db, {
+    dimensions: options.embeddingDimensions,
+    forceMemory: !appDb.vectorEnabled
+  });
+  const chunkIndexer = createChunkIndexer({
+    db: appDb.db,
+    index: searchIndex,
+    embed: async (text) => (await aiGateway.embed({ value: text })).embedding,
+    onError: options.onIndexError
+  });
+  if (!options.disableBackgroundIndex) chunkIndexer.backfill();
+
   let port = 0;
   const auth = createAuthState(options.pairingToken, port);
   const presence = new PresenceStore();
@@ -65,7 +102,11 @@ export async function createIngestionServer(options: CreateIngestionServerOption
     presence,
     ingestCtx,
     getPort: () => port,
-    workbenchDist: options.workbenchDist ?? workbenchDistPath()
+    workbenchDist: options.workbenchDist ?? workbenchDistPath(),
+    aiGateway,
+    aiConfig,
+    searchIndex,
+    chunkIndexer
   });
 
   const scheduler = options.disableScheduler ? null : startScheduler(appDb.db, appDb.dataDir);
@@ -76,6 +117,10 @@ export async function createIngestionServer(options: CreateIngestionServerOption
     db: appDb,
     auth,
     scheduler,
+    aiGateway,
+    aiConfig,
+    searchIndex,
+    chunkIndexer,
     listen(listenPort = 0, host = "127.0.0.1") {
       return new Promise((resolve, reject) => {
         try {
@@ -103,6 +148,7 @@ export async function createIngestionServer(options: CreateIngestionServerOption
         if (!nodeServer) return resolve();
         nodeServer.close(() => resolve());
       });
+      await chunkIndexer.stop();
       appDb.close();
     }
   };
@@ -120,7 +166,8 @@ export async function startFromEnv(): Promise<void> {
   const ingestion = await createIngestionServer({
     dataDir,
     pairingToken,
-    ...(dev ? { minRevisitSeconds: 3 } : {})
+    ...(dev ? { minRevisitSeconds: 3 } : {}),
+    onIndexError: (error, doc) => console.warn(`[search] ${doc.ownerType}/${doc.ownerId}: ${error instanceof Error ? error.message : String(error)}`)
   });
 
   await ingestion.listen(port);
@@ -130,6 +177,7 @@ export async function startFromEnv(): Promise<void> {
   console.log(`Pairing token: ${pairingToken}`);
   console.log(`Data directory: ${dataDir}`);
   console.log(`Vector search: ${ingestion.db.vectorEnabled ? "enabled" : "disabled"}`);
+  console.log(`AI providers: ${ingestion.aiConfig.countProviders()}`);
 
   const shutdown = async () => {
     console.log("Shutting down…");

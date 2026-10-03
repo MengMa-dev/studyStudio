@@ -14,7 +14,9 @@ import {
   type CollectorEvent
 } from "@study-studio/shared";
 import type { AiGateway } from "../ai/gateway.js";
+import type { SqliteAiConfigStore } from "../ai/sqlite-stores.js";
 import type { AppDatabase } from "../db/database.js";
+import type { ChunkIndexer } from "../search/background.js";
 import type { SearchIndex } from "../search/index-api.js";
 import { ingest, pageCaptured, type IngestContext } from "../domains/capture/ingest.js";
 import { PresenceStore } from "../domains/capture/presence.js";
@@ -48,6 +50,10 @@ export type AppServices = {
   workbenchDist: string;
   aiGateway?: AiGateway;
   searchIndex?: SearchIndex;
+  /** Shared with `aiGateway`; AI routes fall back to a store over `appDb` + `<dataDir>/secrets.json`. */
+  aiConfig?: SqliteAiConfigStore;
+  /** Background chunks / FTS / vector upkeep; enqueue after entry writes. */
+  chunkIndexer?: ChunkIndexer;
 };
 
 export function createApp(services: AppServices): Hono {

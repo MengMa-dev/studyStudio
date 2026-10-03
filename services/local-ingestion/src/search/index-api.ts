@@ -53,11 +53,15 @@ export function createSearchIndex(db: SearchDatabase, options: CreateSearchIndex
   const chunkOpts = options.chunk;
 
   const deleteOwner = (ownerType: string, ownerId: string): void => {
-    const rows = db.prepare("SELECT rowid FROM chunks WHERE owner_type = ? AND owner_id = ?").all(ownerType, ownerId) as { rowid: number }[];
+    const rows = db.prepare("SELECT rowid, text FROM chunks WHERE owner_type = ? AND owner_id = ?").all(ownerType, ownerId) as {
+      rowid: number;
+      text: string;
+    }[];
     for (const row of rows) {
       const rowid = Number(row.rowid);
-      db.prepare("DELETE FROM chunks_fts WHERE rowid = ?").run(rowid);
-      db.prepare("DELETE FROM chunks_trigram WHERE rowid = ?").run(rowid);
+      // Contentless FTS5 rejects DELETE; the 'delete' command needs the originally indexed values.
+      db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, seg_text) VALUES ('delete', ?, ?)").run(rowid, segmentText(row.text));
+      db.prepare("INSERT INTO chunks_trigram(chunks_trigram, rowid, text) VALUES ('delete', ?, ?)").run(rowid, row.text.toLowerCase());
       vectorStore.delete(rowid);
     }
     db.prepare("DELETE FROM chunks WHERE owner_type = ? AND owner_id = ?").run(ownerType, ownerId);
@@ -92,13 +96,8 @@ export function createSearchIndex(db: SearchDatabase, options: CreateSearchIndex
   const reindex = async (docs: IndexableDocument[], embed: EmbedFn, onProgress?: (progress: ReindexProgress) => void): Promise<void> => {
     onProgress?.({ phase: "clear", done: 0, total: docs.length });
     db.exec("DELETE FROM chunks");
-    // Contentless FTS: rebuild by deleting all rows via chunks clear + re-insert; also clear fts tables.
-    try {
-      db.exec("DELETE FROM chunks_fts");
-      db.exec("DELETE FROM chunks_trigram");
-    } catch {
-      // some contentless fts builds prefer 'DELETE FROM t' via rebuild; ignore if empty
-    }
+    db.exec("INSERT INTO chunks_fts(chunks_fts) VALUES ('delete-all')");
+    db.exec("INSERT INTO chunks_trigram(chunks_trigram) VALUES ('delete-all')");
     vectorStore.clear();
 
     let done = 0;
