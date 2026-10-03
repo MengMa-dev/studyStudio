@@ -17,3 +17,4 @@ apps/browser-extension/*.html
 *.md
 *.sql
 release/
+tmp/

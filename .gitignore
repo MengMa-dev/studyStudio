@@ -13,3 +13,4 @@ release/
 .env.*
 !.env.example
 secrets.json
+tmp/
