@@ -18,7 +18,9 @@ export default defineConfig({
     proxy: {
       "/v1": {
         target: "http://127.0.0.1:43118",
-        changeOrigin: true
+        changeOrigin: true,
+        // The service only accepts same-origin writes; present proxied requests as coming from it.
+        headers: { origin: "http://127.0.0.1:43118" }
       }
     }
   },

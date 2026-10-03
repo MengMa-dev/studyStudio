@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -86,6 +86,11 @@ export function createApp(services: AppServices): Hono {
         rewriteRequestPath: (path) => path.replace(/^\/app/, "") || "/index.html"
       })
     );
+    // Client-side routes (no file extension) fall back to the SPA shell.
+    app.get("/app/*", (c, next) => {
+      if (/\.[a-z0-9]+$/i.test(c.req.path)) return next();
+      return c.html(readFileSync(join(workbenchDist, "index.html"), "utf8"));
+    });
   } else {
     app.get("/app", (c) => c.redirect("/app/"));
     app.get("/app/", (c) =>

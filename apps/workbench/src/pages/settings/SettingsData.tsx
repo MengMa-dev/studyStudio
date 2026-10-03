@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
 import { Modal } from "@/components/ui/Modal";
@@ -16,9 +16,14 @@ export function SettingsData() {
     mutationFn: () => api.exportData(),
     onSuccess: (result) => pushToast({ message: `已导出 ${result.filename}` })
   });
+  const importInput = useRef<HTMLInputElement>(null);
   const importData = useMutation({
-    mutationFn: () => api.importData(),
-    onSuccess: () => pushToast({ message: "导入完成" })
+    mutationFn: (file: File) => api.importData(file),
+    onSuccess: (result) => {
+      pushToast({ message: `导入完成，共 ${result.itemCount} 条` });
+      void queryClient.invalidateQueries();
+    },
+    onError: (error) => pushToast({ message: `导入失败：${error instanceof Error ? error.message : String(error)}` })
   });
   const reindex = useMutation({
     mutationFn: () => api.reindex(),
@@ -75,9 +80,22 @@ export function SettingsData() {
           {setRow(
             "导入备份",
             "校验后替换本地库",
-            <button type="button" className="btn sm" onClick={() => importData.mutate()}>
-              导入
-            </button>
+            <>
+              <input
+                ref={importInput}
+                type="file"
+                accept=".zip,application/zip"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) importData.mutate(file);
+                }}
+              />
+              <button type="button" className="btn sm" disabled={importData.isPending} onClick={() => importInput.current?.click()}>
+                {importData.isPending ? "导入中…" : "导入"}
+              </button>
+            </>
           )}
           {setRow(
             "重建索引",

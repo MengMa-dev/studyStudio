@@ -453,7 +453,7 @@ export const mockApi = {
     });
   },
 
-  async importData() {
+  async importData(_file: File) {
     return dataImportResponseSchema.parse({ ok: true, itemCount: activeItems().length });
   },
 

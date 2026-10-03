@@ -174,8 +174,8 @@ export const realApi = {
     return request(DATA_API.export, { method: "POST" }, dataExportResponseSchema);
   },
 
-  async importData() {
-    return request(DATA_API.import, { method: "POST" }, dataImportResponseSchema);
+  async importData(file: File) {
+    return request(DATA_API.import, { method: "POST", body: file, headers: { "Content-Type": "application/zip" } }, dataImportResponseSchema);
   },
 
   async reindex() {
