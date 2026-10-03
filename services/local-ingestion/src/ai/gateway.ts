@@ -179,6 +179,7 @@ export class AiGateway {
           model: resolved.modelId,
           error: errorMessage(error)
         });
+        console.warn(`[ai] ${params.task} ${resolved.role} ${resolved.provider.id}/${resolved.modelId} failed: ${errorMessage(error).slice(0, 500)}`);
         if (isContextTooLongError(error)) throw new ContextTooLongError(errorMessage(error), { cause: error });
       }
     }
@@ -327,6 +328,7 @@ export class AiGateway {
           model: resolved.modelId,
           error: errorMessage(error)
         });
+        console.warn(`[ai] embedding ${resolved.role} ${resolved.provider.id}/${resolved.modelId} failed: ${errorMessage(error).slice(0, 500)}`);
       }
     }
     throw new AllModelsFailedError(failures);

@@ -43,6 +43,24 @@ export function isRetryableProviderError(error: unknown): boolean {
   return status === 429 || (typeof status === "number" && status >= 500 && status <= 599);
 }
 
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/** Provider-requested wait (Retry-After header or "try again in 21.4s"), capped; null when absent. */
+export function retryAfterMs(error: unknown): number | null {
+  const headers = APICallError.isInstance(error) ? error.responseHeaders : undefined;
+  const header = headers?.["retry-after"] ?? headers?.["Retry-After"];
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds)) return Math.min(Math.max(seconds * 1000, 0), MAX_RETRY_AFTER_MS);
+  }
+  const match = /try again in\s+(?:(\d+)m)?\s*(\d+(?:\.\d+)?)\s*(ms|s)\b/i.exec(errorMessage(error));
+  if (!match) return null;
+  const minutes = Number(match[1] ?? 0);
+  const value = Number(match[2]);
+  const ms = match[3]!.toLowerCase() === "ms" ? value : value * 1000;
+  return Math.min(minutes * 60_000 + ms, MAX_RETRY_AFTER_MS);
+}
+
 export type RetryOptions = {
   /** Number of retries after the first attempt (default 3 → up to 4 tries). */
   retries?: number;
@@ -55,7 +73,7 @@ export type RetryOptions = {
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * Run `fn` with exponential backoff on 429/5xx.
+ * Run `fn` with exponential backoff on 429/5xx, waiting at least as long as the provider asks.
  * Context-too-long errors are rethrown as ContextTooLongError without retry.
  */
 export async function withRetries<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
@@ -73,7 +91,7 @@ export async function withRetries<T>(fn: () => Promise<T>, options: RetryOptions
         throw new ContextTooLongError(errorMessage(error), { cause: error });
       }
       if (!isRetryableProviderError(error) || attempt === retries) throw error;
-      const delayMs = baseDelayMs * 2 ** attempt;
+      const delayMs = Math.max(baseDelayMs * 2 ** attempt, retryAfterMs(error) ?? 0);
       options.onRetry?.({ attempt: attempt + 1, delayMs, error });
       await sleep(delayMs);
     }
