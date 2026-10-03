@@ -36,6 +36,7 @@ import {
 import { createKbRegistryTrashHandler, KB_TRASH_KIND } from "../domains/kb/trash.js";
 import { registerTrashHandler } from "../domains/trash/registry.js";
 import { registerAiRoutes } from "./routes/ai.js";
+import { registerChatRoutes } from "./routes/chat.js";
 import { registerDataRoutes } from "./routes/data.js";
 import { registerKbRoutes } from "./routes/kb.js";
 import { registerOrganizeRoutes } from "./routes/organize.js";
@@ -259,6 +260,7 @@ export function createApp(services: AppServices): Hono {
   registerAiRoutes(api, services);
   registerOrganizeRoutes(api, services);
   registerKbRoutes(api, services);
+  registerChatRoutes(api, services);
 
   app.route("/v1", api);
 

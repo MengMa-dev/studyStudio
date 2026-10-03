@@ -57,6 +57,18 @@ export class FixtureNotFoundError extends AiGatewayError {
   }
 }
 
+/** Provider rejected a request carrying tools (chat switches to the no-tools path). */
+export class ToolsNotSupportedError extends AiGatewayError {
+  readonly providerId: string;
+  readonly model: string;
+  constructor(providerId: string, model: string, options?: ErrorOptions) {
+    super("tools_not_supported", `Model does not support tools: ${providerId}/${model}`, options);
+    this.name = "ToolsNotSupportedError";
+    this.providerId = providerId;
+    this.model = model;
+  }
+}
+
 export class AllModelsFailedError extends AiGatewayError {
   readonly failures: { role: "primary" | "fallback"; providerId: string; model: string; error: string }[];
   constructor(failures: AllModelsFailedError["failures"]) {
