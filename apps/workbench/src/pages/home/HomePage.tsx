@@ -5,12 +5,22 @@ import type { LearnerProfile } from "@study-studio/shared";
 import { api } from "@/api";
 import { fmtMinutes, greetingText } from "@/lib/format";
 import { Modal } from "@/components/ui/Modal";
+import { ChatComposer } from "@/components/chat/ChatComposer";
+import { ChatMessageList } from "@/components/chat/ChatMessageList";
+import { ChatStatusBar } from "@/components/chat/ChatStatusBar";
+import { chatExamples } from "@/components/chat/chat-context";
+import { ExampleQuestions } from "@/components/chat/ExampleQuestions";
+import { useChatSession } from "@/components/chat/useChatSession";
 import { ProfileEditor } from "@/pages/settings/ProfileEditor";
 import styles from "./HomePage.module.css";
+
+const PLACEHOLDER = "问问你学过的内容，或告诉我「我最近在学 AI 相关知识」";
+const HOME_EXAMPLES = chatExamples({ page: "home" });
 
 export function HomePage() {
   const queryClient = useQueryClient();
   const home = useQuery({ queryKey: ["home"], queryFn: () => api.getHomeSummary() });
+  const session = useChatSession();
   const [profileOpen, setProfileOpen] = useState(false);
 
   const saveProfile = useMutation({
@@ -22,9 +32,61 @@ export function HomePage() {
     }
   });
 
-  if (home.isLoading || !home.data) return <div className="empty">加载中…</div>;
+  if (home.isLoading || !home.data || !session.historyLoaded) return <div className="empty">加载中…</div>;
   const data = home.data;
   const hasProfile = Boolean(data.profile.role || data.profile.directions.length);
+  const disabled = !session.configured;
+
+  const profileButton = (
+    <button type="button" className="profile-btn" onClick={() => setProfileOpen(true)} aria-label="学习者档案" title="学习者档案">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </svg>
+      {hasProfile ? <i className="profile-dot" /> : null}
+    </button>
+  );
+
+  const composer = (
+    <ChatComposer
+      variant="home"
+      busy={session.busy}
+      disabled={disabled}
+      placeholder={disabled ? "未配置对话模型，配置后即可提问" : PLACEHOLDER}
+      onSend={session.send}
+      onStop={session.stop}
+      trailing={profileButton}
+      autoFocus
+    />
+  );
+
+  const profileModal = (
+    <Modal open={profileOpen} onOpenChange={setProfileOpen} title="学习者档案" className="profile-modal">
+      <ProfileEditor
+        initial={data.profile}
+        onCancel={() => setProfileOpen(false)}
+        onSave={(profile) => saveProfile.mutate(profile)}
+        saving={saveProfile.isPending}
+      />
+    </Modal>
+  );
+
+  if (session.messages.length > 0) {
+    return (
+      <div className="chat-page">
+        <div className="row" style={{ marginBottom: 8 }}>
+          <span className="muted small">基于学习记录与知识库回答 · 对话不计入收集箱</span>
+          <div className="grow" />
+          <button type="button" className="btn sm" onClick={session.clear}>
+            清空对话
+          </button>
+        </div>
+        <ChatMessageList className="chat-list" messages={session.messages} status={session.status} currentPage="home" footer={<ChatStatusBar {...session} />} />
+        <div className="chat-dock">{composer}</div>
+        {profileModal}
+      </div>
+    );
+  }
 
   return (
     <div className={`chat-home ${styles.home}`}>
@@ -35,15 +97,12 @@ export function HomePage() {
         <h1>
           {greetingText(data.greetingPeriod)}，今天已经学习了 {fmtMinutes(data.today.minutes)}
         </h1>
-        <div className="muted">基于你的学习记录与知识库回顾进度、薄弱点与待整理内容</div>
-        <button type="button" className="profile-btn" style={{ marginTop: 8 }} onClick={() => setProfileOpen(true)} aria-label="学习者档案">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 21a8 8 0 0 1 16 0" />
-          </svg>
-          {hasProfile ? <i className="profile-dot" /> : null}
-        </button>
+        <div className="muted">基于你的学习记录与知识库回答：学过什么、掌握得怎样、还缺什么</div>
       </div>
+
+      {composer}
+      <ChatStatusBar {...session} />
+      <ExampleQuestions questions={HOME_EXAMPLES} variant="chips" disabled={disabled} onAsk={session.send} />
 
       <div className={`home-stats ${styles.cards}`}>
         <Link to="/progress" className={styles.card}>
@@ -64,14 +123,7 @@ export function HomePage() {
         </Link>
       </div>
 
-      <Modal open={profileOpen} onOpenChange={setProfileOpen} title="学习者档案" className="profile-modal">
-        <ProfileEditor
-          initial={data.profile}
-          onCancel={() => setProfileOpen(false)}
-          onSave={(profile) => saveProfile.mutate(profile)}
-          saving={saveProfile.isPending}
-        />
-      </Modal>
+      {profileModal}
     </div>
   );
 }

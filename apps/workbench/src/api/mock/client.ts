@@ -59,6 +59,7 @@ import {
 } from "@study-studio/shared";
 
 import { mockAiApi, resetMockAiState } from "./ai";
+import { mockChatApi, resetMockChatState } from "./chat";
 import { mockKbApi, resetMockKbState } from "./kb";
 import { mockOrganizeApi, resetMockOrganizeState } from "./organize";
 import { createSeedState, decodeCursor, encodeCursor, toListRow, type MockItem, type MockState } from "./seed";
@@ -70,6 +71,7 @@ export function resetMockState(): void {
   resetMockKbState();
   resetMockOrganizeState();
   resetMockAiState();
+  resetMockChatState();
 }
 
 export function getMockState(): MockState {
@@ -180,6 +182,7 @@ export const mockApi = {
   ...mockKbApi,
   ...mockOrganizeApi,
   ...mockAiApi,
+  ...mockChatApi,
 
   async getHomeSummary() {
     refreshDerived();

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { OrganizePreviewResponse, OrganizeScope } from "@study-studio/shared";
 import { api } from "@/api";
 import { Modal } from "@/components/ui/Modal";
 import { useOrganizeStore, type OrganizeDialogRequest } from "@/stores/organize";
-import { useUiStore } from "@/stores/ui";
+import { useRunOrganize } from "./useRunOrganize";
 
 export const REQUIREMENT_CHIPS = ["上次整理的不对，请重新理解", "重点突出原理和适用场景", "多举具体例子", "更简洁，只保留核心", "和相关知识点做对比"];
 
@@ -76,9 +76,7 @@ function signalsText(scope: OrganizeScope, preview: OrganizePreviewResponse): st
   return `本次会整理 ${preview.itemCount} 条内容（${preview.newItemCount} 条新内容），使用 ${preview.noteCount} 条收集点 / 模糊备注${newNotes}${fuzzy}${edited}`;
 }
 
-export function isRunConflict(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("run_in_progress");
-}
+export { isRunConflict } from "./useRunOrganize";
 
 export function OrganizeDialogHost() {
   const request = useOrganizeStore((state) => state.dialog);
@@ -88,10 +86,7 @@ export function OrganizeDialogHost() {
 }
 
 function OrganizeDialog({ request, onClose }: { request: OrganizeDialogRequest; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const pushToast = useUiStore((state) => state.pushToast);
   const active = useOrganizeStore((state) => state.active);
-  const setActive = useOrganizeStore((state) => state.setActive);
   const [scope, setScope] = useState<OrganizeScope>(request.defaultScope ?? request.scopes[0] ?? "inbox_pending");
   const [requirement, setRequirement] = useState(request.prefill ?? "");
   const [allowOverLimit, setAllowOverLimit] = useState(false);
@@ -107,28 +102,7 @@ function OrganizeDialog({ request, onClose }: { request: OrganizeDialogRequest; 
 
   useEffect(() => setAllowOverLimit(false), [scope]);
 
-  const run = useMutation({
-    mutationFn: (body: Parameters<typeof api.runOrganize>[0]) => api.runOrganize(body),
-    onSuccess: async ({ run: started }) => {
-      onClose();
-      const current = useOrganizeStore.getState().active;
-      if (!current || current.runId !== started.id) {
-        setActive({
-          runId: started.id,
-          done: started.progress?.done ?? 0,
-          total: started.progress?.total ?? 0,
-          stage: started.progress?.stage ?? null,
-          currentTitle: null
-        });
-      }
-      pushToast({ message: "已开始整理，进度见侧栏" });
-      await queryClient.invalidateQueries({ queryKey: ["organize-runs"] });
-      await queryClient.invalidateQueries({ queryKey: ["organize-settings"] });
-    },
-    onError: (error) => {
-      pushToast({ message: isRunConflict(error) ? "已有整理在进行，完成后再试" : `发起整理失败：${error instanceof Error ? error.message : String(error)}` });
-    }
-  });
+  const run = useRunOrganize({ onStarted: onClose });
 
   const total = preview.data ? preview.data.itemCount + preview.data.entryCount : 0;
   const needsConfirm = preview.data?.overDailyLimit && !allowOverLimit;

@@ -72,7 +72,8 @@ function createTasks(): AiTaskModel[] {
     { task: "learning_judge", providerId: "ollama", model: "qwen2.5:7b", fallbackProviderId: null, fallbackModel: null },
     { task: "knowledge_processing", providerId: "gemini", model: "gemini-3.8-flash", fallbackProviderId: null, fallbackModel: null },
     { task: "entry_rewrite", providerId: "gemini", model: "gemini-3.5-flash-lite", fallbackProviderId: null, fallbackModel: null },
-    { task: "embedding", providerId: "ollama", model: "nomic-embed-text", fallbackProviderId: null, fallbackModel: null }
+    { task: "embedding", providerId: "ollama", model: "nomic-embed-text", fallbackProviderId: null, fallbackModel: null },
+    { task: "chat", providerId: null, model: null, fallbackProviderId: null, fallbackModel: null }
   ];
 }
 
@@ -92,6 +93,15 @@ export function resetMockAiState(): void {
   providers = createProviders();
   tasks = createTasks();
   dailyTokenLimit = 200_000;
+}
+
+/** Chat falls back to the knowledge-processing model when it has none of its own (09「网关扩展」). */
+export function mockChatModelConfigured(): boolean {
+  return tasks.some((task) => (task.task === "chat" || task.task === "knowledge_processing") && task.providerId !== null);
+}
+
+export function clearMockAiTask(name: AiTaskModel["task"]): void {
+  tasks = tasks.map((task) => (task.task === name ? { ...task, providerId: null, model: null, fallbackProviderId: null, fallbackModel: null } : task));
 }
 
 function mask(key: string | null): string | null {

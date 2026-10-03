@@ -55,6 +55,7 @@ import {
 } from "@study-studio/shared";
 
 import { realAiApi } from "./ai";
+import { realChatApi } from "./chat";
 import { qs, request } from "./http";
 import { realKbApi } from "./kb";
 import { realOrganizeApi } from "./organize";
@@ -63,6 +64,7 @@ export const realApi = {
   ...realKbApi,
   ...realOrganizeApi,
   ...realAiApi,
+  ...realChatApi,
 
   async getHomeSummary() {
     return request(HOME_API.summary, undefined, homeSummaryResponseSchema);
