@@ -50,6 +50,8 @@ export type AppServices = {
   ingestCtx: IngestContext;
   getPort: () => number;
   workbenchDist: string;
+  /** Where /app/login lands; `npm run dev` points it at the Vite server so the stale dist is never shown. */
+  workbenchUrl?: string;
   aiGateway?: AiGateway;
   searchIndex?: SearchIndex;
   /** Shared with `aiGateway`; AI routes fall back to a store over `appDb` + `<dataDir>/secrets.json`. */
@@ -75,7 +77,7 @@ export function createApp(services: AppServices): Hono {
     }
     const session = createSession(auth);
     setSessionCookie(c, session);
-    return c.redirect("/app/");
+    return c.redirect(services.workbenchUrl ?? "/app/");
   });
 
   if (existsSync(workbenchDist)) {

@@ -24,7 +24,10 @@ const tasks = [
     color: 36,
     args: [resolveBin("tsx", "dist/cli.mjs"), "watch", "services/local-ingestion/src/server.ts"],
     cwd: root,
-    env: { STUDY_STUDIO_DATA_DIR: process.env.STUDY_STUDIO_DATA_DIR ?? join(root, "StudyStudioData") }
+    env: {
+      STUDY_STUDIO_DATA_DIR: process.env.STUDY_STUDIO_DATA_DIR ?? join(root, "StudyStudioData"),
+      STUDY_STUDIO_WORKBENCH_URL: process.env.STUDY_STUDIO_WORKBENCH_URL ?? "http://127.0.0.1:5173/app/"
+    }
   },
   {
     name: "workbench",

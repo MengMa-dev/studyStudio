@@ -27,6 +27,7 @@ export type CreateIngestionServerOptions = {
   /** Disable cron jobs (tests). */
   disableScheduler?: boolean;
   workbenchDist?: string;
+  workbenchUrl?: string;
   /** Gateway extras (mock fixtures / rules, retry) — tests and fixture replay. */
   ai?: Omit<AiGatewayOptions, "configStore" | "usageStore">;
   /** `chunks_vec` dimensions; must match the embedding model (default 768, nomic-embed-text). */
@@ -104,6 +105,7 @@ export async function createIngestionServer(options: CreateIngestionServerOption
     ingestCtx,
     getPort: () => port,
     workbenchDist: options.workbenchDist ?? workbenchDistPath(),
+    ...(options.workbenchUrl ? { workbenchUrl: options.workbenchUrl } : {}),
     aiGateway,
     aiConfig,
     searchIndex,
@@ -186,7 +188,8 @@ export async function startFromEnv(options: StartOptions = {}): Promise<StartedS
     pairingToken,
     ...(dev ? { minRevisitSeconds: 3 } : {}),
     onIndexError: (error, doc) => console.warn(`[search] ${doc.ownerType}/${doc.ownerId}: ${error instanceof Error ? error.message : String(error)}`),
-    ...(options.workbenchDist ? { workbenchDist: options.workbenchDist } : {})
+    ...(options.workbenchDist ? { workbenchDist: options.workbenchDist } : {}),
+    ...(process.env.STUDY_STUDIO_WORKBENCH_URL ? { workbenchUrl: process.env.STUDY_STUDIO_WORKBENCH_URL } : {})
   });
 
   const listenPort = await ingestion.listen(port);

@@ -15,6 +15,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // `npm run dev` sends the login redirect here; drifting to another port would land on a dead URL.
+    strictPort: true,
     proxy: {
       "/v1": {
         target: "http://127.0.0.1:43118",
