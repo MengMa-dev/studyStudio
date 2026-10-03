@@ -31,13 +31,10 @@ function ModelPicker({
 }) {
   const listId = useId();
   return (
-    <div className="row" style={{ gap: 6 }}>
-      <span className="small muted" style={{ width: 28 }}>
-        {label}
-      </span>
+    <div className="model-picker">
+      <span className="small muted">{label}</span>
       <select
         className="input"
-        style={{ width: 150 }}
         aria-label={`${label}服务商`}
         value={providerId}
         onChange={(event) => {
@@ -55,7 +52,6 @@ function ModelPicker({
       </select>
       <input
         className="input"
-        style={{ width: 200 }}
         aria-label={`${label}模型`}
         list={listId}
         value={model}
@@ -86,8 +82,8 @@ export function AiTaskRow({ meta, value, providers, modelsFor, saving, onSave }:
   const valid = providerId !== "" && model.trim() !== "" && (fallbackProviderId === "" || fallbackModel.trim() !== "");
 
   return (
-    <div className="set-row" data-task={meta.task}>
-      <div className="grow" style={{ minWidth: 0 }}>
+    <div className="set-row task-row" data-task={meta.task}>
+      <div style={{ minWidth: 0 }}>
         <div className="set-label">
           {meta.label}{" "}
           <span className="faint small" style={{ fontWeight: 400 }}>
@@ -96,7 +92,7 @@ export function AiTaskRow({ meta, value, providers, modelsFor, saving, onSave }:
         </div>
         <div className="set-desc">{meta.desc}</div>
       </div>
-      <div className="set-control" style={{ flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+      <div className="task-pickers">
         <ModelPicker
           label="主"
           providers={providers}

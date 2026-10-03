@@ -7,9 +7,9 @@ import type { IndexedEntry } from "./KbPage";
 
 export function ConceptChip({ id, name, mastery }: { id: string; name: string; mastery: number | null }) {
   return (
-    <Link to="/wiki/$entryId" params={{ entryId: id }} className="concept-chip">
+    <Link to="/wiki/$entryId" params={{ entryId: id }} className="concept-chip" title={name}>
       <i style={{ background: masteryColor(mastery) }} />
-      {name}
+      <b className="concept-name">{name}</b>
       <span>{masteryPercent(mastery)}</span>
     </Link>
   );

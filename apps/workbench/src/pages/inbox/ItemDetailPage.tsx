@@ -14,7 +14,7 @@ export function ItemDetailPage({ itemId }: Props) {
   const queryClient = useQueryClient();
   const pushToast = useUiStore((state) => state.pushToast);
   const openOrganize = useOrganizeStore((state) => state.openDialog);
-  const inboxHref = useModuleMemoryStore((state) => state.hrefFor("inbox"));
+  const inboxHref = useModuleMemoryStore((state) => state.listHrefFor("inbox"));
   const detail = useQuery({ queryKey: ["item", itemId], queryFn: () => api.getInboxItem(itemId) });
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");

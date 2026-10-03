@@ -56,14 +56,19 @@ export function siteShort(site: string | null): { color: string; short: string }
   return { color: "#868e96", short: (site ?? "?").slice(0, 1) };
 }
 
-export function formatCapturedAt(iso: string): string {
+export function formatClock(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  const now = new Date(Date.UTC(2026, 9, 2, 18, 0, 0));
-  const sameDay = date.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
-  const yesterday = new Date(now.getTime() - 86400000).toISOString().slice(0, 10) === date.toISOString().slice(0, 10);
-  const time = `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
-  if (sameDay) return `今天 ${time}`;
-  if (yesterday) return `昨天 ${time}`;
-  return `${date.getUTCMonth() + 1}月${date.getUTCDate()}日 ${time}`;
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+export function formatCapturedAt(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const dayKey = (value: Date) => `${value.getFullYear()}-${value.getMonth()}-${value.getDate()}`;
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const time = formatClock(iso);
+  if (dayKey(date) === dayKey(now)) return `今天 ${time}`;
+  if (dayKey(date) === dayKey(yesterday)) return `昨天 ${time}`;
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
 }

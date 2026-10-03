@@ -1,9 +1,9 @@
-/* App-level overlays and polish on top of prototype tokens. */
+/* App-only additions; anything ported from the prototype lives in prototype.css and must not be overridden here. */
 
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
+  background: rgba(15, 18, 24, 0.4);
   z-index: 40;
 }
 
@@ -17,291 +17,36 @@
   max-height: calc(100vh - 48px);
   overflow: auto;
   background: var(--panel);
-  border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(16, 24, 40, 0.18);
-  padding: 18px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+  padding: 20px;
 }
 
 .modal-title {
   font-size: 16px;
   font-weight: 650;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .toast-host {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 60;
   display: grid;
+  justify-items: center;
   gap: 8px;
 }
 
-.toast {
+.toast-host .toast {
+  position: static;
+  transform: none;
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 220px;
-  max-width: 420px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: #1f2329;
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-}
-
-.toast.show {
-  opacity: 1;
-}
-
-.prose {
-  line-height: 1.75;
-}
-
-.prose pre {
-  background: #1f2329;
-  color: #e9ecef;
-  padding: 12px 14px;
-  border-radius: 8px;
-  overflow: auto;
-  font-size: 13px;
-}
-
-.prose code {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 0.92em;
-}
-
-.prose :not(pre) > code {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 5px;
-}
-
-.qa-q {
-  background: var(--primary-soft);
-  color: var(--primary);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  font-weight: 600;
-}
-
-.reasoning {
-  margin-bottom: 12px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.detail-head h2 {
-  font-size: 22px;
-  margin: 10px 0;
-}
-
-.session-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 0;
-  border-bottom: 1px dashed var(--border);
-  font-size: 13px;
-}
-
-.session-row:last-child {
-  border-bottom: none;
-}
-
-.batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
-.list-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 4px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-}
-
-.list-item:hover {
-  background: var(--bg);
-}
-
-.list-item .title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.list-item .title {
-  font-weight: 600;
-  min-width: 0;
-}
-
-.list-item .meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.list-item .right-meta {
-  display: grid;
-  justify-items: end;
-  gap: 6px;
-  color: var(--faint);
-  font-size: 12px;
-  flex: none;
-}
-
-.check-hit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  flex: none;
-}
-
-.pager {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  margin-top: 8px;
-}
-
-.pg {
-  border: 1px solid var(--border);
-  background: var(--panel);
-  border-radius: 6px;
-  padding: 4px 10px;
-}
-
-.pg:disabled {
-  opacity: 0.4;
-}
-
-.settings-layout {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 24px;
-}
-
-.settings-nav-title {
-  font-weight: 650;
-  margin-bottom: 10px;
-}
-
-.settings-link {
-  display: block;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: var(--muted);
-  margin-bottom: 2px;
-}
-
-.settings-link:hover,
-.settings-link.active {
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
-.settings-head {
-  margin-bottom: 16px;
-}
-
-.settings-head h1 {
-  font-size: 20px;
-  margin-bottom: 4px;
-}
-
-.set-group {
-  margin-bottom: 18px;
-}
-
-.set-group-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.set-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-}
-
-.set-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.set-row:last-child {
-  border-bottom: none;
-}
-
-.set-label {
-  font-weight: 600;
-  color: var(--text);
-}
-
-.set-desc {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.set-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-}
-
-.set-foot {
-  margin-top: 8px;
-  color: var(--faint);
-  font-size: 12px;
-}
-
-.set-row.range .set-control {
-  min-width: 220px;
-}
-
-.range-val {
-  min-width: 64px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-
-.set-details summary {
-  cursor: pointer;
-}
-
-.danger-zone .set-group-head h3 {
-  color: var(--red);
+  max-width: min(520px, calc(100vw - 32px));
 }
 
 @media (max-width: 900px) {

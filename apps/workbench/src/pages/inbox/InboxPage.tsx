@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Checkbox } from "radix-ui";
 import type { InboxListRow, InboxListStatusFilter, InboxListTypeFilter } from "@study-studio/shared";
 import { api } from "@/api";
@@ -487,9 +487,6 @@ function InboxRow({ row, checked, onToggle, onOpen }: { row: InboxListRow; check
       </div>
       <div className="right-meta">
         <span>{formatCapturedAt(row.capturedAt)}</span>
-        <Link to="/item/$itemId" params={{ itemId: row.id }} className="faint" onClick={(event) => event.stopPropagation()}>
-          →
-        </Link>
       </div>
     </div>
   );

@@ -28,7 +28,7 @@ const appRoute = createRoute({
   component: function AppLayout() {
     const pathname = useRouterState({ select: (state) => state.location.pathname });
     return (
-      <AppShell fit={pathname === "/wiki"}>
+      <AppShell fit={pathname === "/wiki" || pathname === "/inbox"}>
         <Outlet />
         <OrganizeDialogHost />
         <OrganizeEventsBridge />

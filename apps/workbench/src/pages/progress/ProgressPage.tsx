@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { api } from "@/api";
 import { EllipsisText } from "@/components/ui/EllipsisText";
-import { fmtDuration, fmtMinutes, fmtShort } from "@/lib/format";
+import { fmtDuration, fmtMinutes, fmtShort, formatClock } from "@/lib/format";
 
 const TYPE_FILTERS = [
   { id: "all", label: "全部" },
@@ -104,7 +104,7 @@ export function ProgressPage() {
                             if (row.itemId) window.location.hash = `#/item/${row.itemId}`;
                           }}
                         >
-                          <span className="time">{new Date(row.startedAt).toISOString().slice(11, 16)}</span>
+                          <span className="time">{formatClock(row.startedAt)}</span>
                           <span className="ico">
                             {row.type === "fuzzy" ? (
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -237,7 +237,9 @@ export function ProgressPage() {
             </div>
             {sources.map((source) => (
               <div key={source.name} className="hbar">
-                <span>{source.name}</span>
+                <span className="hbar-label" title={source.name}>
+                  {source.name}
+                </span>
                 <div className="hbar-track">
                   <div className="hbar-fill" style={{ width: `${(source.minutes / maxSource) * 100}%` }} />
                 </div>

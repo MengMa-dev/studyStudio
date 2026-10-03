@@ -32,6 +32,12 @@ export function rememberRoute(memory: Record<ModuleId, string>, pathname: string
   return { ...memory, [module]: `${pathname}${search}` };
 }
 
+export function rememberListRoute(memory: Record<ModuleId, string>, pathname: string, search: string): Record<ModuleId, string> {
+  const module = moduleOfPath(pathname);
+  if (pathname !== DEFAULT_MODULE_ROUTES[module].split("?")[0]) return memory;
+  return { ...memory, [module]: `${pathname}${search}` };
+}
+
 export function routeForModule(memory: Record<ModuleId, string>, module: ModuleId): string {
   return memory[module] ?? DEFAULT_MODULE_ROUTES[module];
 }
