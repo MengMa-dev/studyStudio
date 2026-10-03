@@ -12,6 +12,7 @@ import { createChunkIndexer, type ChunkIndexer } from "./search/background.js";
 import { createSearchIndex, type IndexableDocument, type SearchIndex } from "./search/index-api.js";
 import { PresenceStore } from "./domains/capture/presence.js";
 import { ensureDefaultSettings } from "./domains/settings/settings.js";
+import { startOrganizeWorker } from "./jobs/organize-worker.js";
 import { startScheduler, type Scheduler } from "./jobs/scheduler.js";
 import { createApp, createAuthState, createLoginLink, workbenchDistPath } from "./http/app.js";
 
@@ -110,6 +111,7 @@ export async function createIngestionServer(options: CreateIngestionServerOption
   });
 
   const scheduler = options.disableScheduler ? null : startScheduler(appDb.db, appDb.dataDir);
+  const organizeWorker = options.disableScheduler ? null : startOrganizeWorker(appDb);
 
   let nodeServer: ReturnType<typeof createServer> | null = null;
 
@@ -144,6 +146,7 @@ export async function createIngestionServer(options: CreateIngestionServerOption
     },
     async close() {
       scheduler?.stop();
+      await organizeWorker?.stop();
       await new Promise<void>((resolve) => {
         if (!nodeServer) return resolve();
         nodeServer.close(() => resolve());
