@@ -55,26 +55,37 @@ function toEditable(markdown: string): { preamble: string[]; sections: Array<{ h
   };
 }
 
+/** User text before「整理建议」is kept byte-for-byte; suggestions always go to the end of the document. */
 function appendSuggestion(body: string, suggestionMarkdown: string): string {
-  const editable = toEditable(body);
-  const existing = editable.sections.find((s) => normalizeHeading(s.heading) === normalizeHeading(SUGGESTION_HEADING));
   const block = suggestionMarkdown.trim();
-  if (existing) {
-    existing.body = existing.body.trim() ? `${existing.body.trim()}\n\n${block}` : block;
-  } else {
-    editable.sections.push({ heading: SUGGESTION_HEADING, body: block });
-  }
+  const { sections } = splitSections(body);
+  const existing = sections.find((s) => normalizeHeading(s.heading) === normalizeHeading(SUGGESTION_HEADING));
+  if (!existing) return `${body.trimEnd()}${body.trim() ? "\n\n" : ""}${SUGGESTION_HEADING}\n\n${block}\n`;
+  const topLevel = sections.filter((s) => /^#{1,2}\s/.test(s.heading));
+  if (existing === topLevel[topLevel.length - 1]) return `${body.trimEnd()}\n\n${block}\n`;
+  const editable = toEditable(body);
+  const target = editable.sections.find((s) => normalizeHeading(s.heading) === normalizeHeading(SUGGESTION_HEADING))!;
+  target.body = target.body.trim() ? `${target.body.trim()}\n\n${block}` : block;
   return rebuild(editable.preamble, editable.sections);
+}
+
+/** Suggestion blocks use level-3 headings so they stay nested under「## 整理建议」. */
+function demoteHeadings(markdown: string): string {
+  return markdown.trim().replace(/^(#{1,5})(\s+\S)/gm, (_match, marks: string, rest: string) => `${"#".repeat(Math.max(marks.length + 2, 4))}${rest}`);
+}
+
+function headingText(heading: string): string {
+  return ensureHeadingMarks(heading).replace(/^#+\s*/, "");
 }
 
 function formatOpAsSuggestion(op: PatchOp): string {
   if (op.op === "append_to_section") {
-    return `### 追加到 ${ensureHeadingMarks(op.section)}\n\n${op.markdown.trim()}`;
+    return `### 追加到「${headingText(op.section)}」\n\n${demoteHeadings(op.markdown)}`;
   }
   if (op.op === "add_section") {
-    return `${ensureHeadingMarks(op.heading)}\n\n${op.markdown.trim()}`;
+    return `### 新增「${headingText(op.heading)}」\n\n${demoteHeadings(op.markdown)}`;
   }
-  return `### 替换 ${ensureHeadingMarks(op.section)}\n\n${op.markdown.trim()}`;
+  return `### 替换「${headingText(op.section)}」\n\n${demoteHeadings(op.markdown)}`;
 }
 
 /**
