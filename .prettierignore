@@ -16,3 +16,4 @@ apps/browser-extension/*.html
 !apps/browser-extension/tsconfig.json
 *.md
 *.sql
+release/

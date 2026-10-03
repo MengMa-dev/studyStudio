@@ -1,9 +1,14 @@
 {
-  "name": "study-studio",
+  "name": "study-studio-monorepo",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node scripts/dev.js",
+    "build": "node scripts/build.js",
+    "build:release": "node scripts/build.js --release",
+    "pack:extension": "npm run zip -w @study-studio/browser-extension",
+    "start": "node packages/cli/bin/study-studio.js",
     "build:extension": "node scripts/build-extension.js",
     "ingestion": "tsx services/local-ingestion/src/server.ts",
     "demo": "node scripts/demo-ingestion.js",
@@ -41,7 +46,8 @@
     "packages/shared",
     "packages/collector-contract",
     "packages/collector-runtime",
-    "services/local-ingestion"
+    "services/local-ingestion",
+    "packages/cli"
   ],
   "engines": {
     "node": ">=22.13"

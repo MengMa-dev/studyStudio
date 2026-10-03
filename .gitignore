@@ -5,6 +5,8 @@ apps/desktop/dist/
 dist/
 .output/
 .wxt/
+release/
+*.tgz
 *.log
 .DS_Store
 .env
