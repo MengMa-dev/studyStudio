@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { Cron } from "croner";
 import type { OrganizeEvent, OrganizeRunRequest, OrganizeTrigger } from "@study-studio/shared";
+import { SqliteUsageStore } from "../ai/sqlite-stores.js";
+import { utcDay } from "../ai/stores.js";
 import type { AppDatabase } from "../db/database.js";
 import type { OrganizeRunRow } from "../db/types.js";
 import { executeRun, OrganizeAbortedError } from "../domains/organize/pipeline.js";
@@ -349,7 +351,22 @@ export class OrganizeWorker {
   }
 }
 
-type WorkerServices = { appDb: AppDatabase; aiGateway?: OrganizeGateway; searchIndex?: SearchIndex };
+type WorkerServices = {
+  appDb: AppDatabase;
+  aiGateway?: OrganizeGateway;
+  searchIndex?: SearchIndex;
+  aiConfig?: { getDailyTokenLimit(): number | null };
+};
+
+function dailyLimitCheck(services: WorkerServices): (() => boolean) | undefined {
+  const { aiConfig } = services;
+  if (!aiConfig) return undefined;
+  const usage = new SqliteUsageStore(services.appDb.db);
+  return () => {
+    const limit = aiConfig.getDailyTokenLimit();
+    return limit !== null && usage.getDayTotalTokens(utcDay()) >= limit;
+  };
+}
 
 const registry = new WeakMap<DatabaseSync, OrganizeWorker>();
 
@@ -360,7 +377,8 @@ export function organizeWorkerFor(services: WorkerServices): OrganizeWorker {
   const worker = new OrganizeWorker({
     db: services.appDb.db,
     getGateway: () => services.aiGateway ?? null,
-    getSearchIndex: () => services.searchIndex ?? null
+    getSearchIndex: () => services.searchIndex ?? null,
+    isOverDailyLimit: dailyLimitCheck(services)
   });
   registry.set(services.appDb.db, worker);
   return worker;
