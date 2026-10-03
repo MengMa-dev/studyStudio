@@ -22,6 +22,7 @@ export default defineContentScript({
   matches: ["http://*/*", "https://*/*"],
   runAt: "document_idle",
   async main() {
+    if (document.querySelector('meta[name="study-studio-app"]')) return;
     const flags = globalThis as { __studyStudioInstalled?: boolean };
     if (flags.__studyStudioInstalled) return;
     flags.__studyStudioInstalled = true;

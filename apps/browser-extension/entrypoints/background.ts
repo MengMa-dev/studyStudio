@@ -90,10 +90,20 @@ async function statusPayload() {
   };
 }
 
+async function isStudioOrigin(href: string) {
+  try {
+    return new URL(href).origin === new URL((await readConnection()).ingestionUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
 async function bootstrapForTab(tabId?: number, url?: string) {
   settingsCache = await loadCachedSettings();
   const href = url ?? "";
-  const excluded = href ? matchesExclusion(href, settingsCache.exclusionRules, settingsCache.builtinListPageRules) : false;
+  const excluded = href
+    ? (await isStudioOrigin(href)) || matchesExclusion(href, settingsCache.exclusionRules, settingsCache.builtinListPageRules)
+    : false;
   const category = href ? resolveCategory(href, settingsCache) : "neutral";
   const nav = navForTab(tabId);
   const captureRules = settingsCache.captureRules ?? DEFAULT_CAPTURE_RULES;
