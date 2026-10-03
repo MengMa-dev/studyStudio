@@ -13,7 +13,9 @@ import {
   eventBatchRequestSchema,
   type CollectorEvent
 } from "@study-studio/shared";
+import type { AiGateway } from "../ai/gateway.js";
 import type { AppDatabase } from "../db/database.js";
+import type { SearchIndex } from "../search/index-api.js";
 import { ingest, pageCaptured, type IngestContext } from "../domains/capture/ingest.js";
 import { PresenceStore } from "../domains/capture/presence.js";
 import { deleteRule, insertRule, listRules } from "../domains/capture/rules.js";
@@ -29,6 +31,11 @@ import {
   setSessionCookie,
   type AuthState
 } from "./auth.js";
+import { registerAiRoutes } from "./routes/ai.js";
+import { registerDataRoutes } from "./routes/data.js";
+import { registerKbRoutes } from "./routes/kb.js";
+import { registerOrganizeRoutes } from "./routes/organize.js";
+import { registerWorkbenchRoutes } from "./routes/workbench.js";
 
 const MAX_EVENT_BYTES = 20 * 1024 * 1024;
 
@@ -39,6 +46,8 @@ export type AppServices = {
   ingestCtx: IngestContext;
   getPort: () => number;
   workbenchDist: string;
+  aiGateway?: AiGateway;
+  searchIndex?: SearchIndex;
 };
 
 export function createApp(services: AppServices): Hono {
@@ -228,6 +237,12 @@ export function createApp(services: AppServices): Hono {
   });
 
   api.get("/presence", (c) => c.json({ entries: presence.list() }));
+
+  registerWorkbenchRoutes(api, services);
+  registerDataRoutes(api, services);
+  registerAiRoutes(api, services);
+  registerOrganizeRoutes(api, services);
+  registerKbRoutes(api, services);
 
   app.route("/v1", api);
 

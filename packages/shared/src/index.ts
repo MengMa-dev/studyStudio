@@ -8,3 +8,6 @@ export * from "./api/timeline";
 export * from "./api/trash";
 export * from "./api/data";
 export * from "./api/home";
+export * from "./api/kb";
+export * from "./api/organize";
+export * from "./api/ai";

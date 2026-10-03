@@ -1,4 +1,5 @@
 import {
+  AI_API,
   applyCaptureRulesUpdate,
   collectorSettingsSchema,
   collectorSettingsUpdateSchema,
@@ -25,12 +26,14 @@ import {
   inboxItemPatchSchema,
   inboxListQuerySchema,
   inboxListResponseSchema,
+  KB_API,
   learnerProfileResponseSchema,
   learnerProfileSchema,
   NOTES_API,
   notesListResponseSchema,
   noteSchema,
   onboardingStatusSchema,
+  ORGANIZE_API,
   pairingResetResponseSchema,
   patchNoteRequestSchema,
   presenceResponseSchema,
@@ -55,12 +58,18 @@ import {
   type PatchNoteRequest
 } from "@study-studio/shared";
 
+import { mockAiApi, resetMockAiState } from "./ai";
+import { mockKbApi, resetMockKbState } from "./kb";
+import { mockOrganizeApi, resetMockOrganizeState } from "./organize";
 import { createSeedState, decodeCursor, encodeCursor, toListRow, type MockItem, type MockState } from "./seed";
 
 let state: MockState = createSeedState();
 
 export function resetMockState(): void {
   state = createSeedState();
+  resetMockKbState();
+  resetMockOrganizeState();
+  resetMockAiState();
 }
 
 export function getMockState(): MockState {
@@ -168,6 +177,10 @@ function softDeleteNotes(ids: string[]): Note[] {
 }
 
 export const mockApi = {
+  ...mockKbApi,
+  ...mockOrganizeApi,
+  ...mockAiApi,
+
   async getHomeSummary() {
     refreshDerived();
     return homeSummaryResponseSchema.parse(state.home);
@@ -272,6 +285,7 @@ export const mockApi = {
       removedEntryCount: body.removeFromKb ? deletedItems.reduce((sum, item) => sum + Math.min(1, item.relatedEntries.length), 0) : 0,
       itemIds: deletedItems.map((item) => item.id),
       noteIds: deletedNotes.map((note) => note.id),
+      entryIds: [],
       snapshot: { items: structuredClone(deletedItems), notes: structuredClone(deletedNotes) }
     });
 
@@ -510,7 +524,10 @@ export const mockPaths = {
   TRASH_API,
   DATA_API,
   RULES_API,
-  SETTINGS_API
+  SETTINGS_API,
+  KB_API,
+  ORGANIZE_API,
+  AI_API
 };
 
 export type WorkbenchApi = typeof mockApi;

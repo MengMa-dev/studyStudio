@@ -8,7 +8,7 @@ export function useMockApi(): boolean {
   return import.meta.env.DEV;
 }
 
-export const api = useMockApi() ? mockApi : realApi;
 export type WorkbenchApi = typeof mockApi;
+export const api: WorkbenchApi = useMockApi() ? mockApi : realApi;
 
 export { mockApi, resetMockState, getMockState } from "./mock/client";

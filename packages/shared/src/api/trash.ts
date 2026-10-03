@@ -4,7 +4,7 @@ import { inboxItemTypeSchema } from "./inbox";
 
 export const trashEntrySchema = z.object({
   id: z.string().min(1),
-  kind: z.enum(["items", "notes", "mixed"]),
+  kind: z.enum(["items", "notes", "mixed", "entries"]),
   title: z.string(),
   site: z.string().nullable(),
   itemType: inboxItemTypeSchema.nullable(),
@@ -13,7 +13,9 @@ export const trashEntrySchema = z.object({
   removeFromKb: z.boolean(),
   removedEntryCount: z.number().int().nonnegative(),
   itemIds: z.array(z.string()),
-  noteIds: z.array(z.string())
+  noteIds: z.array(z.string()),
+  /** Knowledge-base entries deleted from the KB page (`kind=entries`). */
+  entryIds: z.array(z.string()).default([])
 });
 export type TrashEntry = z.infer<typeof trashEntrySchema>;
 
@@ -24,7 +26,8 @@ export type TrashListResponse = z.infer<typeof trashListResponseSchema>;
 
 export const trashRestoreResponseSchema = z.object({
   restoredItemCount: z.number().int().nonnegative(),
-  restoredNoteCount: z.number().int().nonnegative()
+  restoredNoteCount: z.number().int().nonnegative(),
+  restoredEntryCount: z.number().int().nonnegative().default(0)
 });
 export type TrashRestoreResponse = z.infer<typeof trashRestoreResponseSchema>;
 
