@@ -11,7 +11,15 @@ import {
 import { createMockProvider, type MockProviderOptions } from "./mock";
 import { createProviderRuntime, type CreateProviderRuntimeOptions, type ProviderRuntime } from "./providers";
 import { prepareSchemaForProvider, schemaHintForPrompt, unwrapUnionResult } from "./schema-wrap";
-import { errorMessage, isContextTooLongError, isRetryableProviderError, isToolsUnsupportedError, withRetries, type RetryOptions } from "./retry";
+import {
+  errorMessage,
+  isContextTooLongError,
+  isRetryableProviderError,
+  isToolsUnsupportedError,
+  quotaCooldownMs,
+  withRetries,
+  type RetryOptions
+} from "./retry";
 import { MemoryProviderConfigStore, utcDay } from "./stores";
 import type {
   AiTask,
@@ -56,6 +64,8 @@ export class AiGateway {
   private readonly nowDay: () => string;
   private readonly embeddingDimensions: number;
   private readonly runtimeCache = new Map<string, ProviderRuntime>();
+  /** provider/model → epoch ms until which the model is skipped (quota exhausted). */
+  private readonly cooldowns = new Map<string, number>();
   /** Shared mock state so fixtures registered via gateway.apply to the provider. */
   private readonly mock = createMockProvider();
 
@@ -104,7 +114,21 @@ export class AiGateway {
         });
       }
     }
-    return models;
+    return this.withoutCooledDown(models);
+  }
+
+  /** Skips models whose quota is exhausted; if every model is cooling down, all are tried anyway. */
+  private withoutCooledDown(models: ResolvedModel[]): ResolvedModel[] {
+    const now = Date.now();
+    const available = models.filter((model) => (this.cooldowns.get(`${model.provider.id}/${model.modelId}`) ?? 0) <= now);
+    return available.length > 0 ? available : models;
+  }
+
+  private noteFailure(resolved: ResolvedModel, error: unknown): void {
+    const cooldown = quotaCooldownMs(error);
+    if (cooldown === null) return;
+    this.cooldowns.set(`${resolved.provider.id}/${resolved.modelId}`, Date.now() + cooldown);
+    console.warn(`[ai] ${resolved.provider.id}/${resolved.modelId} quota exhausted; skipped for ${Math.round(cooldown / 60_000)} min`);
   }
 
   private getRuntime(provider: ProviderConfig): ProviderRuntime {
@@ -180,6 +204,7 @@ export class AiGateway {
         if (error instanceof ContextTooLongError || error instanceof UsageLimitExceededError || error instanceof FixtureNotFoundError) {
           throw error;
         }
+        this.noteFailure(resolved, error);
         failures.push({
           role: resolved.role,
           providerId: resolved.provider.id,
@@ -323,6 +348,7 @@ export class AiGateway {
         if (params.abortSignal?.aborted) throw error;
         if (error instanceof ContextTooLongError) throw error;
         if (params.tools && isToolsUnsupportedError(error)) throw new ToolsNotSupportedError(resolved.provider.id, resolved.modelId, { cause: error });
+        this.noteFailure(resolved, error);
         failures.push({ role: resolved.role, providerId: resolved.provider.id, model: resolved.modelId, error: errorMessage(error) });
         console.warn(`[ai] chat ${resolved.role} ${resolved.provider.id}/${resolved.modelId} failed: ${errorMessage(error).slice(0, 500)}`);
       }
@@ -396,6 +422,7 @@ export class AiGateway {
         };
       } catch (error) {
         if (error instanceof ContextTooLongError || error instanceof UsageLimitExceededError) throw error;
+        this.noteFailure(resolved, error);
         failures.push({
           role: resolved.role,
           providerId: resolved.provider.id,

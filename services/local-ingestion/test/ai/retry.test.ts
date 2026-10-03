@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { APICallError } from "@ai-sdk/provider";
 import { ContextTooLongError } from "../../src/ai/errors";
-import { isContextTooLongError, isRetryableProviderError, retryAfterMs, withRetries } from "../../src/ai/retry";
+import { isContextTooLongError, isRetryableProviderError, quotaCooldownMs, retryAfterMs, withRetries } from "../../src/ai/retry";
 
 test("classifies 429/5xx as retryable and context-too-long as not", () => {
   assert.equal(isRetryableProviderError(new APICallError({ message: "rate", url: "u", requestBodyValues: {}, statusCode: 429, isRetryable: true })), true);
@@ -85,4 +85,33 @@ test("honors provider-requested wait from Retry-After or the error message, capp
     { baseDelayMs: 10, sleep: async (ms) => void delays.push(ms) }
   );
   assert.deepEqual(delays, [21412.5]);
+});
+
+test("long provider waits are quota exhaustion: no retry, cooldown reported", async () => {
+  const gemini = new APICallError({
+    message:
+      "You exceeded your current quota.\n* Quota exceeded for metric: generate_content_free_tier_requests, limit: 20\nPlease retry in 8h13m38.761570599s.",
+    url: "u",
+    requestBodyValues: {},
+    statusCode: 429,
+    isRetryable: true
+  });
+  assert.equal(retryAfterMs(gemini), 60_000);
+  assert.equal(quotaCooldownMs(gemini), 8 * 3_600_000 + 13 * 60_000 + 38_761.570599);
+  assert.equal(
+    quotaCooldownMs(new APICallError({ message: "Please try again in 21s", url: "u", requestBodyValues: {}, statusCode: 429, isRetryable: true })),
+    null
+  );
+
+  let attempts = 0;
+  await assert.rejects(() =>
+    withRetries(
+      async () => {
+        attempts += 1;
+        throw gemini;
+      },
+      { retries: 3, sleep: async () => {} }
+    )
+  );
+  assert.equal(attempts, 1);
 });

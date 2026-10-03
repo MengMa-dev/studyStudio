@@ -7,9 +7,9 @@ import type { UIMessage } from "ai";
 import { openDatabase } from "../../src/db/database.js";
 import { saveLearnerProfile } from "../../src/domains/data/profile.js";
 import { createCitationRegistry } from "../../src/domains/chat/citations.js";
-import { detectFallbackCalls, detectTimeRange } from "../../src/domains/chat/fallback.js";
+import { detectFallbackCalls, detectTimeRange, isOrganizeCommand } from "../../src/domains/chat/fallback.js";
 import { buildChatSystemPrompt } from "../../src/domains/chat/prompt.js";
-import { trimHistory } from "../../src/domains/chat/service.js";
+import { historyForModel, trimHistory } from "../../src/domains/chat/service.js";
 import { appendMessage, clearMessages, listMessages, truncateAfter } from "../../src/domains/chat/store.js";
 
 test("citation registry dedupes objects and keeps only registered [n] in order", () => {
@@ -23,6 +23,19 @@ test("citation registry dedupes objects and keeps only registered [n] in order",
     [1, 2]
   );
   assert.deepEqual(registry.resolve("没有引用"), []);
+  assert.deepEqual(
+    registry.resolve("全角【2】与列表 [1, 2]、【1、2】、【1†ref1】；链接 [1](http://x) 不算").map((citation) => citation.n),
+    [1, 2]
+  );
+  assert.deepEqual(
+    registry.resolve("链接 [1](http://x) 不算").map((citation) => citation.n),
+    []
+  );
+});
+
+test("short organize commands skip the model; questions about organizing do not", () => {
+  for (const text of ["整理", "帮我整理该页知识点", "整理全部未整理内容"]) assert.equal(isOrganizeCommand(text), true, text);
+  for (const text of ["我今天整理了什么", "整理是什么意思？", "怎么整理知识库", "RAG 是什么"]) assert.equal(isOrganizeCommand(text), false, text);
 });
 
 test("fallback intent rules map phrases to tools", () => {
@@ -118,4 +131,30 @@ test("system prompt carries profile, date, time zone, page titles and rules", as
   assert.match(prompt, /以下内容非学习记录/);
   assert.match(prompt, /propose_organize/);
   assert.match(prompt, /record_learner_profile/);
+});
+
+test("earlier turns reach the model as plain text without citation markers", () => {
+  const history = [
+    { id: "u1", role: "user" as const, parts: [{ type: "text" as const, text: "RAG 是什么" }] },
+    {
+      id: "a1",
+      role: "assistant" as const,
+      parts: [
+        { type: "step-start" as const },
+        { type: "tool-get_entry", toolCallId: "c1", state: "output-available", input: { id: "e1" }, output: { ref: 1 } },
+        { type: "text" as const, text: "RAG 先检索再生成 [1]【2】。" },
+        { type: "data-citations" as const, data: { citations: [], nonRecord: false } }
+      ]
+    },
+    { id: "a2", role: "assistant" as const, parts: [{ type: "data-organize-card" as const, data: {} }] },
+    { id: "u2", role: "user" as const, parts: [{ type: "text" as const, text: "它和哪些知识点有关" }] }
+  ] as unknown as UIMessage[];
+  assert.deepEqual(
+    historyForModel(history).map((message) => [message.id, message.parts]),
+    [
+      ["u1", [{ type: "text", text: "RAG 是什么" }]],
+      ["a1", [{ type: "text", text: "RAG 先检索再生成 。" }]],
+      ["u2", [{ type: "text", text: "它和哪些知识点有关" }]]
+    ]
+  );
 });

@@ -81,6 +81,15 @@ function trimClause(text: string): string {
     .trim();
 }
 
+/**
+ * Short imperative organize requests skip the model even when it supports tools: models
+ * sometimes answer 「已展示卡片」 without calling propose_organize.
+ */
+export function isOrganizeCommand(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length <= 30 && /整理(?![了过])/.test(trimmed) && !/[?？]|什么|吗|怎么|如何/.test(trimmed);
+}
+
 /** Rule-based intent for models without tools (09「不支持 tools 的降级」). */
 export function detectFallbackCalls(text: string, context: ChatContext, today: string): FallbackToolCall[] {
   if (/整理/.test(text)) return [{ tool: "propose_organize", input: { target: organizeTarget(text) } }];

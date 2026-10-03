@@ -24,7 +24,8 @@
     "test": "node --import tsx --test --test-reporter=spec \"tests/**/*.test.js\" \"packages/*/test/**/*.test.ts\" \"services/*/test/**/*.test.ts\" \"scripts/**/*.test.ts\" && npm run test --workspaces --if-present",
     "verify:sqlite": "tsx scripts/verify/sqlite.ts",
     "verify:ai": "tsx scripts/verify/ai-structured-output.ts",
-    "verify:wxt": "tsx scripts/verify/wxt-extension.ts"
+    "verify:wxt": "tsx scripts/verify/wxt-extension.ts",
+    "verify:chat": "tsx scripts/verify/chat-eval.ts"
   },
   "dependencies": {
     "esbuild": "^0.28.2"

@@ -28,4 +28,8 @@ describe("ChatMessage 引用渲染", () => {
   it("代码块中的 [n] 不替换", () => {
     expect(linkCitations("见 [1]\n```\narr[1]\n```", new Set([1]))).toBe("见 [1](#cite-1)\n```\narr[1]\n```");
   });
+
+  it("全角【n】与 [1, 2] 列表拆成独立上标", () => {
+    expect(linkCitations("时长【1】，见 [1, 2]、【2、9】", new Set([1, 2]))).toBe("时长[1](#cite-1)，见 [1](#cite-1)[2](#cite-2)、[2](#cite-2)\\[9\\]");
+  });
 });

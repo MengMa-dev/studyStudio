@@ -88,6 +88,16 @@ export const chatProfileCardDataSchema = z.object({
 });
 export type ChatProfileCardData = z.infer<typeof chatProfileCardDataSchema>;
 
+/**
+ * Citation markers models actually emit: `[1]`, `【1】`, `[1, 2]`, `【8、9】`, `【1†ref1】`.
+ * A following `(` is excluded so Markdown links like `[1](url)` are left alone.
+ */
+export const CHAT_CITATION_MARKER = /[[【](\d{1,3}(?:\s*[,，、]\s*\d{1,3})*)(?:†[^\]】\n]{0,20})?[\]】](?!\()/g;
+
+export function citationMarkerNumbers(raw: string): number[] {
+  return raw.split(/[,，、]/).map((part) => Number(part.trim()));
+}
+
 export const CHAT_DATA_PART_TYPES = {
   citations: "data-citations",
   organizeCard: "data-organize-card",

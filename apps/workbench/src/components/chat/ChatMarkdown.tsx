@@ -1,6 +1,6 @@
 import { useMemo, type ComponentPropsWithoutRef } from "react";
 import type { Components } from "react-markdown";
-import type { ChatCitation } from "@study-studio/shared";
+import { CHAT_CITATION_MARKER, citationMarkerNumbers, type ChatCitation } from "@study-studio/shared";
 import { MarkdownView } from "@/components/ui/MarkdownView";
 import { CitationLink } from "./CitationList";
 
@@ -17,7 +17,11 @@ export function linkCitations(markdown: string, known: Set<number>): string {
         return line;
       }
       if (fenced) return line;
-      return line.replace(/\[(\d{1,3})\](?!\()/g, (match, raw: string) => (known.has(Number(raw)) ? `[${raw}](${CITE_HREF}${raw})` : `\\[${raw}\\]`));
+      return line.replace(CHAT_CITATION_MARKER, (match: string, raw: string) =>
+        citationMarkerNumbers(raw)
+          .map((n) => (known.has(n) ? `[${n}](${CITE_HREF}${n})` : `\\[${n}\\]`))
+          .join("")
+      );
     })
     .join("\n");
 }

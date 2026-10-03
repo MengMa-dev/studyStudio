@@ -50,9 +50,9 @@ export function pageContextSummary(db: DatabaseSync, context: ChatContext): stri
 }
 
 const RULES = `## 回答规则
-1. 回答必须基于工具结果（学习记录与知识库）。工具结果中的每个对象带有 ref 序号，引用时在句末用 [n] 标注，n 只能取工具返回过的 ref，不要编造。
+1. 回答必须基于工具结果（学习记录与知识库）。工具结果中的每个对象带有 ref 序号，凡是用到工具结果的句子，都要在句末用半角方括号 [n] 标注（如 [1]、[2]，不要用【】），n 只能取工具返回过的 ref，不要编造。
 2. 回顾学习记录用 query_timeline；问知识点先用 search_knowledge，需要正文时再用 get_entry / get_item；问掌握情况用 list_mastery。
-3. 检索没有命中时，明确说「${NO_HIT_TEXT}」。若再用通用知识回答，这部分必须以「${NON_RECORD_PREFIX}」开头。
+3. 检索没有命中时，回答第一句必须原样写「${NO_HIT_TEXT}。」（不要改写成其他说法）。若再用通用知识回答，这部分必须以「${NON_RECORD_PREFIX}」开头。
 4. 没有调用任何检索工具、也没有引用的回答，必须以「${NON_RECORD_PREFIX}」开头。
 5. 用户要求整理时只能调用 propose_organize 生成确认卡片，不能声称已经整理；范围不明确时 target 用 ask。
 6. 用户陈述自己的身份或学习方向（如「我是产品经理」「我最近在学 AI」）时调用 record_learner_profile，然后简短回复「好的，已记录」。

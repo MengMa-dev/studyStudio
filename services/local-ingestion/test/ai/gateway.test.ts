@@ -181,6 +181,25 @@ test("429/5xx retries then switches to fallback model", async () => {
   assert.equal(result.providerId, "fallback");
 });
 
+test("quota exhaustion (long retry hint) skips retries and cools the model down", async () => {
+  const config = new MemoryProviderConfigStore();
+  config.upsertProvider({ id: "primary", name: "Primary", type: "mock", baseUrl: null, defaultModel: "p" });
+  config.upsertProvider({ id: "fallback", name: "Fallback", type: "mock", baseUrl: null, defaultModel: "f" });
+  config.setTaskModel({ task: "learning_judge", providerId: "primary", model: "p", fallbackProviderId: "fallback", fallbackModel: "f" });
+  const gateway = new AiGateway({
+    configStore: config,
+    usageStore: new MemoryUsageStore(),
+    retry: { retries: 3, baseDelayMs: 1, sleep: async () => {} },
+    nowDay: () => "2026-10-02"
+  });
+  gateway.mockState.scriptFailures("primary", 1, 429, "Quota exceeded for metric: free_tier_requests. Please retry in 8h13m38.76s.");
+  gateway.mockState.addRule({ match: () => true, output: { ok: true } });
+  const call = () => gateway.generateObject({ task: "learning_judge", schema: z.object({ ok: z.boolean() }), prompt: "{}", promptVersion: "v1" });
+
+  assert.equal((await call()).usedFallback, true);
+  assert.equal((await call()).usedFallback, true, "primary would succeed now, but is still cooling down");
+});
+
 test("AllModelsFailedError when primary and fallback both exhaust", async () => {
   const config = new MemoryProviderConfigStore();
   const usage = new MemoryUsageStore();

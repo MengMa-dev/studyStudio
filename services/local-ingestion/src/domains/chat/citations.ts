@@ -1,4 +1,4 @@
-import type { ChatCitation, ChatCitationKind } from "@study-studio/shared";
+import { CHAT_CITATION_MARKER, citationMarkerNumbers, type ChatCitation, type ChatCitationKind } from "@study-studio/shared";
 import type { CitationRegistry } from "./contracts.js";
 
 /** Same object registered twice keeps its first `n`, so repeated tool calls cite consistently. */
@@ -18,9 +18,8 @@ export function createCitationRegistry(): CitationRegistry {
     },
     resolve(text: string): ChatCitation[] {
       const cited = new Set<number>();
-      for (const match of text.matchAll(/\[(\d+)\]/g)) {
-        const n = Number(match[1]);
-        if (byN.has(n)) cited.add(n);
+      for (const match of text.matchAll(CHAT_CITATION_MARKER)) {
+        for (const n of citationMarkerNumbers(match[1]!)) if (byN.has(n)) cited.add(n);
       }
       return [...cited].sort((a, b) => a - b).map((n) => byN.get(n)!);
     },

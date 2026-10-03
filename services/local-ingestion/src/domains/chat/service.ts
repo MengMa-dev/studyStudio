@@ -5,11 +5,19 @@ import {
   createUIMessageStream,
   stepCountIs,
   validateUIMessages,
+  type ToolSet,
   type UIMessage,
   type UIMessageChunk,
   type UIMessageStreamWriter
 } from "ai";
-import { CHAT_DATA_PART_TYPES, CHAT_SESSION_ID, type ChatCitationsData, type ChatErrorCode, type ChatRequest } from "@study-studio/shared";
+import {
+  CHAT_CITATION_MARKER,
+  CHAT_DATA_PART_TYPES,
+  CHAT_SESSION_ID,
+  type ChatCitationsData,
+  type ChatErrorCode,
+  type ChatRequest
+} from "@study-studio/shared";
 import { TaskModelNotConfiguredError, ProviderNotFoundError, ToolsNotSupportedError, UsageLimitExceededError } from "../../ai/errors.js";
 import type { AiGateway } from "../../ai/gateway.js";
 import type { StreamChatResult } from "../../ai/types.js";
@@ -19,6 +27,10 @@ import type { ChatDataPartEmit } from "./contracts.js";
 import { chatModelKey, isToolsUnsupported, markToolsUnsupported, runFallback } from "./fallback.js";
 import { buildChatSystemPrompt } from "./prompt.js";
 import { appendMessage, listMessages, truncateAfter } from "./store.js";
+import { ORGANIZE_CARD_TEXT, isOrganizeCommand } from "./fallback.js";
+
+const PROFILE_SAVED_TEXT = "好的，已记录。";
+const EMPTY_ANSWER_TEXT = "模型没有返回内容，请重试。";
 import { createChatTools } from "./tools/index.js";
 
 const HISTORY_LIMIT = 20;
@@ -58,6 +70,23 @@ export function trimHistory(messages: UIMessage[], budget = HISTORY_CHAR_BUDGET)
     used += size;
   }
   return kept;
+}
+
+/**
+ * Earlier turns are replayed as plain text without `[n]`: refs are numbered per request, so their
+ * tool results and markers would otherwise be cited against the wrong objects.
+ */
+export function historyForModel(history: UIMessage[]): UIMessage[] {
+  return history
+    .map((message, index) =>
+      index === history.length - 1
+        ? message
+        : {
+            ...message,
+            parts: message.parts.flatMap((part) => (part.type === "text" ? [{ ...part, text: part.text.replace(CHAT_CITATION_MARKER, "") }] : []))
+          }
+    )
+    .filter((message) => message.parts.length > 0);
 }
 
 function textOf(message: UIMessage): string {
@@ -103,10 +132,18 @@ export async function startChat(deps: ChatServiceDeps, request: ChatRequest, abo
     onError: chatErrorCode,
     execute: async ({ writer }) => {
       const registry = createCitationRegistry();
-      const emit = (part: ChatDataPartEmit) => writer.write({ type: `data-${part.type}`, data: part.data });
-      const tools = createChatTools({ db, searchIndex: deps.searchIndex, aiGateway, now }, { context: request.context, registry, emit });
+      const emitted = new Set<ChatDataPartEmit["type"]>();
+      const emit = (part: ChatDataPartEmit) => {
+        emitted.add(part.type);
+        writer.write({ type: `data-${part.type}`, data: part.data });
+      };
+      const fetchedRefs: number[] = [];
+      const tools = recordFetchedRefs(
+        createChatTools({ db, searchIndex: deps.searchIndex, aiGateway, now }, { context: request.context, registry, emit }),
+        fetchedRefs
+      );
       const system = buildChatSystemPrompt(db, request.context, now());
-      const messages = await convertToModelMessages(history, { tools, ignoreIncompleteToolCalls: true });
+      const messages = await convertToModelMessages(historyForModel(history), { tools, ignoreIncompleteToolCalls: true });
       const fallback = () =>
         runFallback({
           writer,
@@ -124,7 +161,7 @@ export async function startChat(deps: ChatServiceDeps, request: ChatRequest, abo
 
       writer.write({ type: "start" });
       let text: string;
-      if (isToolsUnsupported(chatModelKey(primary.providerId, primary.model))) {
+      if (isOrganizeCommand(userText) || isToolsUnsupported(chatModelKey(primary.providerId, primary.model))) {
         ({ text, model: modelLabel } = await fallback());
       } else {
         try {
@@ -145,7 +182,16 @@ export async function startChat(deps: ChatServiceDeps, request: ChatRequest, abo
         }
       }
 
-      const citations = registry.resolve(text);
+      if (!text.trim()) {
+        text = emitted.has("profile-card") ? PROFILE_SAVED_TEXT : emitted.has("organize-card") ? ORGANIZE_CARD_TEXT : EMPTY_ANSWER_TEXT;
+        const id = "empty-answer";
+        writer.write({ type: "text-start", id });
+        writer.write({ type: "text-delta", id, delta: text });
+        writer.write({ type: "text-end", id });
+      }
+
+      let citations = registry.resolve(text);
+      if (citations.length === 0 && fetchedRefs.length > 0) citations = registry.resolve(fetchedRefs.map((n) => `[${n}]`).join(""));
       const data: ChatCitationsData = { citations, nonRecord: registry.size() === 0 && citations.length === 0 };
       writer.write({ type: CHAT_DATA_PART_TYPES.citations, data });
       writer.write({ type: "finish" });
@@ -155,4 +201,39 @@ export async function startChat(deps: ChatServiceDeps, request: ChatRequest, abo
       appendMessage(db, CHAT_SESSION_ID, { message: responseMessage, model: modelLabel });
     }
   });
+}
+
+type ExecutableTool = { execute?: (...args: unknown[]) => unknown };
+type RefList = { ref?: unknown }[] | undefined;
+
+const MAX_FALLBACK_REFS = 8;
+
+/** Objects a tool result is "about" (not search hits, which may be irrelevant). */
+const PRIMARY_REFS: Partial<Record<string, (output: Record<string, unknown>) => unknown[]>> = {
+  get_entry: (output) => [output.ref],
+  get_item: (output) => [output.ref],
+  query_timeline: (output) => ((output.days as RefList) ?? []).map((day) => day.ref),
+  list_mastery: (output) => ((output.entries as RefList) ?? []).map((entry) => entry.ref)
+};
+
+/**
+ * Models often answer from these tools without writing `[n]`; their primary objects are then
+ * listed as the basis instead of showing none.
+ */
+function recordFetchedRefs<T extends ToolSet>(tools: T, refs: number[]): T {
+  for (const [name, pick] of Object.entries(PRIMARY_REFS)) {
+    const target = tools[name] as ExecutableTool | undefined;
+    const execute = target?.execute;
+    if (!target || !execute || !pick) continue;
+    target.execute = async (...args: unknown[]) => {
+      const output = await execute(...args);
+      if (output && typeof output === "object") {
+        for (const ref of pick(output as Record<string, unknown>)) {
+          if (typeof ref === "number" && !refs.includes(ref) && refs.length < MAX_FALLBACK_REFS) refs.push(ref);
+        }
+      }
+      return output;
+    };
+  }
+  return tools;
 }

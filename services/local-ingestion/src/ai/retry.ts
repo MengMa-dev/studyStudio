@@ -54,20 +54,36 @@ export function isRetryableProviderError(error: unknown): boolean {
 
 const MAX_RETRY_AFTER_MS = 60_000;
 
-/** Provider-requested wait (Retry-After header or "try again in 21.4s"), capped; null when absent. */
-export function retryAfterMs(error: unknown): number | null {
+function requestedWaitMs(error: unknown): number | null {
   const headers = APICallError.isInstance(error) ? error.responseHeaders : undefined;
   const header = headers?.["retry-after"] ?? headers?.["Retry-After"];
   if (header) {
     const seconds = Number(header);
-    if (Number.isFinite(seconds)) return Math.min(Math.max(seconds * 1000, 0), MAX_RETRY_AFTER_MS);
+    if (Number.isFinite(seconds)) return Math.max(seconds * 1000, 0);
   }
-  const match = /try again in\s+(?:(\d+)m)?\s*(\d+(?:\.\d+)?)\s*(ms|s)\b/i.exec(errorMessage(error));
+  const match = /(?:try again|retry) in\s+(?:(\d+)h)?\s*(?:(\d+)m(?!s))?\s*(\d+(?:\.\d+)?)\s*(ms|s)\b/i.exec(errorMessage(error));
   if (!match) return null;
-  const minutes = Number(match[1] ?? 0);
-  const value = Number(match[2]);
-  const ms = match[3]!.toLowerCase() === "ms" ? value : value * 1000;
-  return Math.min(minutes * 60_000 + ms, MAX_RETRY_AFTER_MS);
+  const hours = Number(match[1] ?? 0);
+  const minutes = Number(match[2] ?? 0);
+  const value = Number(match[3]);
+  const ms = match[4]!.toLowerCase() === "ms" ? value : value * 1000;
+  return hours * 3_600_000 + minutes * 60_000 + ms;
+}
+
+/** Provider-requested wait (Retry-After header or "try again in 21.4s"), capped; null when absent. */
+export function retryAfterMs(error: unknown): number | null {
+  const ms = requestedWaitMs(error);
+  return ms === null ? null : Math.min(ms, MAX_RETRY_AFTER_MS);
+}
+
+/**
+ * Wait longer than the retry cap (e.g. Gemini free tier "Please retry in 8h13m") means the quota is
+ * exhausted: retrying in-process only burns time, so the gateway skips the model until then.
+ */
+export function quotaCooldownMs(error: unknown): number | null {
+  if (!isRetryableProviderError(error)) return null;
+  const ms = requestedWaitMs(error);
+  return ms !== null && ms > MAX_RETRY_AFTER_MS ? ms : null;
 }
 
 export type RetryOptions = {
@@ -99,7 +115,7 @@ export async function withRetries<T>(fn: () => Promise<T>, options: RetryOptions
       if (isContextTooLongError(error)) {
         throw new ContextTooLongError(errorMessage(error), { cause: error });
       }
-      if (!isRetryableProviderError(error) || attempt === retries) throw error;
+      if (!isRetryableProviderError(error) || attempt === retries || quotaCooldownMs(error) !== null) throw error;
       const delayMs = Math.max(baseDelayMs * 2 ** attempt, retryAfterMs(error) ?? 0);
       options.onRetry?.({ attempt: attempt + 1, delayMs, error });
       await sleep(delayMs);
