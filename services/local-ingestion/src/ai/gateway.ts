@@ -1,16 +1,17 @@
-import { generateObject, embed as aiEmbed } from "ai";
+import { generateObject, embed as aiEmbed, streamText } from "ai";
 import {
   AllModelsFailedError,
   ContextTooLongError,
   FixtureNotFoundError,
   ProviderNotFoundError,
   TaskModelNotConfiguredError,
+  ToolsNotSupportedError,
   UsageLimitExceededError
 } from "./errors";
 import { createMockProvider, type MockProviderOptions } from "./mock";
 import { createProviderRuntime, type CreateProviderRuntimeOptions, type ProviderRuntime } from "./providers";
 import { prepareSchemaForProvider, schemaHintForPrompt, unwrapUnionResult } from "./schema-wrap";
-import { errorMessage, isContextTooLongError, isRetryableProviderError, withRetries, type RetryOptions } from "./retry";
+import { errorMessage, isContextTooLongError, isRetryableProviderError, isToolsUnsupportedError, withRetries, type RetryOptions } from "./retry";
 import { MemoryProviderConfigStore, utcDay } from "./stores";
 import type {
   AiTask,
@@ -21,6 +22,8 @@ import type {
   ProviderConfig,
   ProviderConfigStore,
   ResolvedModel,
+  StreamChatParams,
+  StreamChatResult,
   UsageStore
 } from "./types";
 
@@ -35,6 +38,8 @@ export type AiGatewayOptions = {
   /** Default embedding dimensions when not specified by model. */
   embeddingDimensions?: number;
 };
+
+const PRE_OUTPUT_PART_TYPES = new Set<string>(["start", "start-step", "text-start", "reasoning-start", "raw"]);
 
 type AttemptFailure = {
   role: "primary" | "fallback";
@@ -69,6 +74,8 @@ export class AiGateway {
     }
     if (options.mock?.requireFixture != null) this.mock.state.requireFixture = options.mock.requireFixture;
     if (options.mock?.embeddingDimensions) this.mock.state.embeddingDimensions = options.mock.embeddingDimensions;
+    if (options.mock?.chatRules) this.mock.state.chatRules = [...options.mock.chatRules];
+    if (options.mock?.chatToolsUnsupported) this.mock.state.chatToolsUnsupported = true;
   }
 
   /** Expose mock state for tests / fixture registration. */
@@ -81,7 +88,7 @@ export class AiGateway {
   }
 
   private async resolveModels(task: AiTask): Promise<ResolvedModel[]> {
-    const taskModel = await this.configStore.getTaskModel(task);
+    const taskModel = (await this.configStore.getTaskModel(task)) ?? (task === "chat" ? await this.configStore.getTaskModel("knowledge_processing") : null);
     if (!taskModel) throw new TaskModelNotConfiguredError(task);
     const primary = await this.configStore.getProvider(taskModel.providerId);
     if (!primary) throw new ProviderNotFoundError(taskModel.providerId);
@@ -111,7 +118,7 @@ export class AiGateway {
       runtime = {
         type: "mock",
         languageModel: () => ({
-          model: this.mock.languageModel(),
+          model: this.mock.languageModel(undefined, undefined, provider.id),
           wrapTopLevelUnion: false,
           supportsStructuredOutputs: true
         }),
@@ -290,6 +297,73 @@ export class AiGateway {
         }
       };
     }, this.retry);
+  }
+
+  /** Checks done before a chat stream opens (mapped to HTTP status by the route); returns the primary model. */
+  async prepareChat(allowOverLimit?: boolean): Promise<{ providerId: string; model: string }> {
+    const [primary] = await this.resolveModels("chat");
+    await this.assertWithinLimit(allowOverLimit);
+    return { providerId: primary!.provider.id, model: primary!.modelId };
+  }
+
+  /**
+   * Streaming chat. Switches to the fallback model only while no output chunk has been produced;
+   * later failures surface as error parts in the stream. Usage is recorded when the stream ends.
+   */
+  async streamChat(params: StreamChatParams): Promise<StreamChatResult> {
+    const models = await this.resolveModels("chat");
+    await this.assertWithinLimit(params.allowOverLimit);
+    const failures: AttemptFailure[] = [];
+
+    for (const resolved of models) {
+      try {
+        const result = await withRetries(() => this.startChatStream(resolved, params), this.retry);
+        return { result, providerId: resolved.provider.id, model: resolved.modelId, usedFallback: resolved.role === "fallback" };
+      } catch (error) {
+        if (params.abortSignal?.aborted) throw error;
+        if (error instanceof ContextTooLongError) throw error;
+        if (params.tools && isToolsUnsupportedError(error)) throw new ToolsNotSupportedError(resolved.provider.id, resolved.modelId, { cause: error });
+        failures.push({ role: resolved.role, providerId: resolved.provider.id, model: resolved.modelId, error: errorMessage(error) });
+        console.warn(`[ai] chat ${resolved.role} ${resolved.provider.id}/${resolved.modelId} failed: ${errorMessage(error).slice(0, 500)}`);
+      }
+    }
+    throw new AllModelsFailedError(failures);
+  }
+
+  /** Resolves once the stream yields its first output chunk; rejects if it errors before that. */
+  private async startChatStream(resolved: ResolvedModel, params: StreamChatParams): Promise<StreamChatResult["result"]> {
+    const handle = this.getRuntime(resolved.provider).languageModel(resolved.modelId, { structuredOutputs: false });
+    let started = false;
+    const result = streamText({
+      model: handle.model,
+      system: params.system,
+      messages: params.messages,
+      tools: params.tools,
+      stopWhen: params.stopWhen,
+      maxRetries: 0,
+      abortSignal: params.abortSignal,
+      onError: ({ error }) => {
+        if (started) console.warn(`[ai] chat stream ${resolved.provider.id}/${resolved.modelId} failed: ${errorMessage(error).slice(0, 500)}`);
+      },
+      onEnd: async (event) => {
+        const usage = normalizeUsage(event.totalUsage);
+        await this.recordUsage("chat", resolved.provider.id, usage.inputTokens, usage.outputTokens);
+      }
+    });
+    // Reading a tee of the result does not consume the streams callers read later.
+    const reader = result.fullStream.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value.type === "error") throw value.error;
+        if (!PRE_OUTPUT_PART_TYPES.has(value.type)) break;
+      }
+      started = true;
+      return result;
+    } finally {
+      reader.cancel().catch(() => undefined);
+    }
   }
 
   async embed(params: EmbedParams): Promise<EmbedResult> {

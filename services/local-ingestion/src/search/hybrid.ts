@@ -20,6 +20,8 @@ export type HybridSearchOptions = {
   ownerType?: string;
   /** Minimum vector score to keep (default 0 — organize ④ applies 0.55 later). */
   minVectorScore?: number;
+  /** See `searchFts` `anyToken`. */
+  anyToken?: boolean;
 };
 
 type ChunkRow = {
@@ -44,7 +46,7 @@ export function hybridSearch(
   const fetchK = Math.max(limit * 3, 20);
 
   const vectorHits = vectorStore.search(query.embedding, fetchK);
-  const ftsHits = searchFts(db, query.text, { limit: fetchK, ownerType: options.ownerType });
+  const ftsHits = searchFts(db, query.text, { limit: fetchK, ownerType: options.ownerType, anyToken: options.anyToken });
 
   const byRowid = new Map<number, HybridHit>();
 

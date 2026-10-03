@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { deterministicEmbedding } from "../../src/ai/mock";
 import { chunkText, estimateTokens } from "../../src/search/chunk";
-import { buildFtsQueryPlan, searchFts } from "../../src/search/fts";
+import { anyTokenQuery, buildFtsQueryPlan, searchFts } from "../../src/search/fts";
 import { hybridSearch } from "../../src/search/hybrid";
 import { applySearchMigration, createSearchIndex } from "../../src/search/index-api";
 import { queryCharLength, segmentText } from "../../src/search/segment";
@@ -82,6 +82,15 @@ test("Chinese and English keyword + vector hybrid recall", async () => {
   // English keyword
   const ftsEn = searchFts(db, "checkpoint", { limit: 5 });
   assert.ok(ftsEn.some((hit) => hit.ownerId === "e2"));
+
+  // Natural-language question: phrase misses, anyToken OR-matches keywords
+  assert.deepEqual(searchFts(db, "checkpoint 到底是什么", { limit: 5 }), []);
+  const ftsAny = searchFts(db, "checkpoint 到底是什么", { limit: 5, anyToken: true });
+  assert.deepEqual(
+    ftsAny.map((hit) => [hit.ownerId, hit.mode]),
+    [["e2", "any"]]
+  );
+  assert.equal(anyTokenQuery(["什么", "到底"]), null);
 
   // Vector recall
   const qEmbed = deterministicEmbedding("交叉编码器 重排", 32);

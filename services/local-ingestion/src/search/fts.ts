@@ -1,6 +1,6 @@
 import { queryCharLength, segmentText, tokenize } from "./segment";
 
-export type FtsQueryMode = "phrase" | "trigram" | "like";
+export type FtsQueryMode = "phrase" | "trigram" | "any" | "like";
 
 export type FtsQueryPlan = {
   /** Primary: Segmenter-presegmented phrase MATCH against chunks_fts. */
@@ -64,7 +64,37 @@ export type FtsHit = {
  * Run phrase FTS first; if short query or empty, fall back to trigram then LIKE.
  * `chunks_fts` / `chunks_trigram` rowids must align with `chunks.rowid`.
  */
-export function searchFts(db: FtsSearchDb, query: string, options: { limit?: number; ownerType?: string } = {}): FtsHit[] {
+/** Question words that would make an OR match hit almost every chunk. */
+const ANY_TOKEN_STOPWORDS = new Set([
+  "什么",
+  "怎么",
+  "到底",
+  "如何",
+  "为什么",
+  "哪些",
+  "一下",
+  "是不是",
+  "有没有",
+  "我们",
+  "这个",
+  "那个",
+  "可以",
+  "知道",
+  "了解",
+  "讲讲",
+  "介绍"
+]);
+
+export function anyTokenQuery(tokens: string[]): string | null {
+  const terms = [...new Set(tokens)].filter((token) => !ANY_TOKEN_STOPWORDS.has(token) && (token.length >= 2 || /[a-z0-9]/.test(token)));
+  return terms.length > 0 ? terms.map(escapeFtsPhrase).join(" OR ") : null;
+}
+
+/**
+ * `anyToken`: after phrase / trigram miss, OR-match individual words (natural-language questions
+ * rarely match as a phrase). Off by default so organize recall keeps phrase semantics.
+ */
+export function searchFts(db: FtsSearchDb, query: string, options: { limit?: number; ownerType?: string; anyToken?: boolean } = {}): FtsHit[] {
   const limit = options.limit ?? 20;
   const plan = buildFtsQueryPlan(query);
   const ownerFilter = options.ownerType ? "AND c.owner_type = ?" : "";
@@ -103,6 +133,20 @@ export function searchFts(db: FtsSearchDb, query: string, options: { limit?: num
       LIMIT ?`;
     const params = options.ownerType ? [plan.trigram, options.ownerType, limit] : [plan.trigram, limit];
     const hits = mapRows(db.prepare(sql).all(...params), "trigram");
+    if (hits.length > 0) return hits;
+  }
+
+  const anyQuery = options.anyToken ? anyTokenQuery(plan.tokens) : null;
+  if (anyQuery) {
+    const sql = `
+      SELECT c.id, c.rowid AS rowid, c.owner_type, c.owner_id, c.text, bm25(chunks_fts) AS rank
+      FROM chunks_fts
+      JOIN chunks c ON c.rowid = chunks_fts.rowid
+      WHERE chunks_fts MATCH ? ${ownerFilter}
+      ORDER BY rank
+      LIMIT ?`;
+    const params = options.ownerType ? [anyQuery, options.ownerType, limit] : [anyQuery, limit];
+    const hits = mapRows(db.prepare(sql).all(...params), "any");
     if (hits.length > 0) return hits;
   }
 

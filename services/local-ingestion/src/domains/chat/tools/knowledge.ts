@@ -44,12 +44,12 @@ async function recall(deps: SearchDeps, query: string, limit: number, signal?: A
   if (deps.aiGateway && deps.searchIndex) {
     try {
       const { embedding } = await deps.aiGateway.embed({ value: query.slice(0, 8000), abortSignal: signal });
-      return { hits: hybridSearch(deps.db, deps.searchIndex.vectorStore, { text: query, embedding }, { limit }), retrieval: "hybrid" };
+      return { hits: hybridSearch(deps.db, deps.searchIndex.vectorStore, { text: query, embedding }, { limit, anyToken: true }), retrieval: "hybrid" };
     } catch {
       // Embedding not configured / failed / dimension mismatch: keyword search still answers.
     }
   }
-  return { hits: searchFts(deps.db, query, { limit }), retrieval: "fts" };
+  return { hits: searchFts(deps.db, query, { limit, anyToken: true }), retrieval: "fts" };
 }
 
 /** Hits come best-first; the first chunk per owner wins, preferring summary / body text over the bare name chunk. */

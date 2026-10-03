@@ -30,6 +30,15 @@ export function isContextTooLongError(error: unknown): boolean {
   return false;
 }
 
+/** 400 whose message mentions tools / function calling (OpenAI-compatible, Ollama "does not support tools"). */
+export function isToolsUnsupportedError(error: unknown): boolean {
+  const status = getHttpStatus(error);
+  if (status !== undefined && status !== 400) return false;
+  const body = error && typeof error === "object" && "responseBody" in error ? String((error as { responseBody?: unknown }).responseBody ?? "") : "";
+  const text = `${errorMessage(error)}\n${body}`;
+  return /tool|function/i.test(text) && /support|not\s*allowed|invalid|unknown|unrecognized/i.test(text);
+}
+
 /** 429 and 5xx are retryable; context-too-long is not. */
 export function isRetryableProviderError(error: unknown): boolean {
   if (isContextTooLongError(error)) return false;
