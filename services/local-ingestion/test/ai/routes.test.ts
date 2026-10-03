@@ -128,7 +128,7 @@ test("task models: every task listed, provider validated, in-use providers canno
   const empty = aiTasksResponseSchema.parse((await call(AI_API.tasks)).body);
   assert.deepEqual(
     empty.tasks.map((task) => task.task),
-    ["learning_judge", "knowledge_processing", "entry_rewrite", "embedding"]
+    ["learning_judge", "knowledge_processing", "entry_rewrite", "embedding", "chat"]
   );
   assert.ok(empty.tasks.every((task) => task.providerId === null));
 
@@ -137,7 +137,7 @@ test("task models: every task listed, provider validated, in-use providers canno
 
   const unknown = await call(AI_API.tasks, json({ tasks: [{ task: "learning_judge", providerId: "nope", model: "m" }] }, "PUT"));
   assert.equal(unknown.status, 422);
-  const badTask = await call(AI_API.tasks, json({ tasks: [{ task: "chat", providerId: main.id, model: "m" }] }, "PUT"));
+  const badTask = await call(AI_API.tasks, json({ tasks: [{ task: "nonexistent", providerId: main.id, model: "m" }] }, "PUT"));
   assert.equal(badTask.status, 422);
 
   const saved = aiTasksResponseSchema.parse(

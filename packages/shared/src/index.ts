@@ -11,3 +11,4 @@ export * from "./api/home";
 export * from "./api/kb";
 export * from "./api/organize";
 export * from "./api/ai";
+export * from "./api/chat";

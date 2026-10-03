@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Must match `AI_TASKS` / `PROVIDER_TYPES` in services/local-ingestion/src/ai/types.ts. */
-export const AI_TASK_NAMES = ["learning_judge", "knowledge_processing", "entry_rewrite", "embedding"] as const;
+export const AI_TASK_NAMES = ["learning_judge", "knowledge_processing", "entry_rewrite", "embedding", "chat"] as const;
 export const aiTaskSchema = z.enum(AI_TASK_NAMES);
 export type AiTaskName = z.infer<typeof aiTaskSchema>;
 

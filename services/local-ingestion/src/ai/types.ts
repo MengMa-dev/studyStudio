@@ -2,7 +2,7 @@ import type { EmbeddingModel, LanguageModel } from "ai";
 import type { z } from "zod";
 
 /** Tasks that go through the AI gateway (06). Chat is out of scope this milestone. */
-export const AI_TASKS = ["learning_judge", "knowledge_processing", "entry_rewrite", "embedding"] as const;
+export const AI_TASKS = ["learning_judge", "knowledge_processing", "entry_rewrite", "embedding", "chat"] as const;
 export type AiTask = (typeof AI_TASKS)[number];
 export type GenerativeAiTask = Exclude<AiTask, "embedding">;
 
