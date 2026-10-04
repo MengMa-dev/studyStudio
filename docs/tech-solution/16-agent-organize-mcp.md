@@ -137,6 +137,13 @@ export const submitDecisionSchema = z.discriminatedUnion("decision", [
 
 返回 `{ ok: true, entry_changes: [{ entry_id, name, change }], edges_created }`。
 
+其他决定：
+
+- duplicate：单元有用户划线 / 笔记 → `marked_requires_compose`（同流水线 S1 规则：标记过的内容不在判定阶段判重复，须走 compose，全部已覆盖时在 `dropped` 中以 `covered` 标注）；`target_entry_ids` 必须是存活词条（否则 `unknown_entry`）；`evidence.quote` 同样做引文校验 → `recordDuplicate`。
+- reject → `recordRejection(decision=reject, reject_reason)`；not_learning → `recordRejection(decision=not_learning)`。
+
+单元定位：`domains/agent/units.ts`（`unitKey` = 首条目 id、`pendingUnits`、`findUnit`），`list_inbox` / `get_unit` / `submit_decision` 共用。
+
 ## 规则下发（`get_guidelines`）
 
 ```text
