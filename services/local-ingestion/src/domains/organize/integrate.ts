@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { kbEntryKindSchema, sourceKindOf, type KbEntryKind, type OrganizeRunEntryChange } from "@study-studio/shared";
+import { sourceKindOf, type OrganizeRunEntryChange } from "@study-studio/shared";
 import type { KnowledgeProcessingOutput } from "../../ai/prompts/schemas.draft.js";
 import { withTransaction } from "../../db/database.js";
+import { normalizeKind } from "../kb/queries.js";
 import { decideAlignment, demoteNewBodyToSupplement } from "./align.js";
+import { kindVocabulary, resolveKind } from "./kinds.js";
 import { normalizeEntryName } from "./normalize.js";
 import { applyPatchOps } from "./patch.js";
 import { findEntryByName, listAliveEntries, loadEntry, type EntryRecord, type OrganizeItem } from "./store.js";
@@ -50,12 +52,6 @@ export type IntegrationResult = {
   edgesCreated: number;
   touchedEntryIds: string[];
 };
-
-const KB_KINDS = new Set<string>(kbEntryKindSchema.options);
-
-export function toKbKind(kind: string | null | undefined): KbEntryKind {
-  return kind && KB_KINDS.has(kind) ? (kind as KbEntryKind) : kind === "pattern" || kind === "practice" ? "method" : "other";
-}
 
 function toStoredEvidence(evidence: ModelEvidence): StoredEvidence {
   return {
@@ -131,7 +127,7 @@ function insertEntry(
     id,
     concept.name.trim(),
     resolveCategory(db, concept.category),
-    toKbKind(concept.kind),
+    concept.kind,
     JSON.stringify([...new Set(concept.aliases.map((alias) => alias.trim()).filter(Boolean))]),
     concept.summary ?? "",
     concept.body_markdown ?? "",
@@ -282,16 +278,19 @@ export function integrateExtraction(ctx: IntegrationContext, items: OrganizeItem
       changes.set(entryId, { entryId, name: loadEntry(db, entryId)?.name ?? entryId, change });
     };
 
+    const kinds = kindVocabulary(db);
+
     for (const concept of output.concepts) {
       const entries = listAliveEntries(db);
       const isNew = concept.match === "new";
+      const kind = resolveKind(concept.kind, kinds);
       const decision = decideAlignment({
         match: concept.match,
         name: concept.name,
         aliases: concept.aliases,
-        kind: concept.kind,
+        kind,
         body_markdown: isNew ? concept.body_markdown : null,
-        existing_entries: entries.map((entry) => ({ id: entry.id, name: entry.name, aliases: entry.aliases, kind: entry.kind })),
+        existing_entries: entries.map((entry) => ({ id: entry.id, name: entry.name, aliases: entry.aliases, kind: normalizeKind(entry.kind) })),
         kb_ignore_names: ctx.kbIgnore,
         name_similarities: ctx.nameSimilarities.get(concept.name) ?? []
       });
@@ -302,12 +301,13 @@ export function integrateExtraction(ctx: IntegrationContext, items: OrganizeItem
 
       let entryId: string;
       if (decision.action === "create_new") {
+        if (!kinds.includes(kind)) kinds.push(kind);
         const created = insertEntry(
           db,
           {
             name: concept.name,
             aliases: concept.aliases,
-            kind: concept.kind,
+            kind,
             category: concept.category,
             summary: concept.summary,
             body_markdown: concept.body_markdown ?? (concept.patch ? concept.patch.ops.map((op) => op.markdown).join("\n\n") : ""),

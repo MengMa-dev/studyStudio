@@ -295,6 +295,7 @@ svg.i {
 }
 .stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-content: start;
 }
@@ -864,8 +865,11 @@ table.table {
   margin: 0 auto;
   display: grid;
   gap: 4px;
-  min-height: calc(100vh - 70px);
+  min-height: calc(100vh - 22px);
   grid-template-rows: auto 1fr auto;
+}
+.main:has(> .chat-page) {
+  padding-bottom: 0;
 }
 .chat-list {
   display: grid;
@@ -988,12 +992,11 @@ table.table {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 10px 0 6px;
-  padding: 6px 8px;
+  margin: 8px 0 4px;
+  padding: 4px 8px;
   border-radius: 8px;
-  background: var(--bg);
   font-size: 13px;
-  min-height: 38px;
+  min-height: 36px;
 }
 .kb-toolbar.active {
   background: var(--primary-soft);
@@ -1483,15 +1486,16 @@ table.table {
   margin: 0;
   cursor: pointer;
 }
-.batch-bar {
+.batch-inline {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--primary-soft);
-  border-radius: 8px;
-  margin-bottom: 10px;
+  gap: 6px;
+  margin-left: auto;
+}
+.batch-count {
   color: var(--primary);
+  font-size: 13px;
+  margin-right: 4px;
 }
 .list-item {
   display: flex;

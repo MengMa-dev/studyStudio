@@ -17,7 +17,6 @@ type RowHandlers = {
   checked: Set<string>;
   onOpen: (id: string) => void;
   onToggle: (id: string) => void;
-  onHover: (key: string) => void;
   onDelete: (id: string) => void;
 };
 
@@ -51,8 +50,6 @@ function EntryRow({ entry, depth, extra, handlers }: { entry: RowEntry; depth: n
       data-depth={depth}
       style={{ paddingLeft: 12 + depth * 18 }}
       onClick={() => handlers.onOpen(entry.id)}
-      onMouseEnter={() => handlers.onHover(entry.id)}
-      onFocus={() => handlers.onHover(entry.id)}
       tabIndex={0}
       onKeyDown={(event) => {
         if (event.key === "Enter") handlers.onOpen(entry.id);
@@ -130,13 +127,7 @@ export function KbCategoryTree({ categories, collapsed, onToggleCollapsed, onChe
         const checkedCount = ids.filter((id) => handlers.checked.has(id)).length;
         return (
           <div key={key} role="group">
-            <div
-              className="tree-cat"
-              data-category-key={key}
-              title={isCollapsed ? "展开" : "折叠"}
-              onClick={() => onToggleCollapsed(key)}
-              onMouseEnter={() => handlers.onHover(key)}
-            >
+            <div className="tree-cat" data-category-key={key} title={isCollapsed ? "展开" : "折叠"} onClick={() => onToggleCollapsed(key)}>
               <input
                 type="checkbox"
                 aria-label={`选中分类 ${category.name} 下全部词条`}

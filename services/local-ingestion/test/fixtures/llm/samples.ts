@@ -3,6 +3,7 @@
  * Learner profile follows the dev convention: role 前端开发, learning focus Agent 架构.
  * `check` returns the mismatches between a recorded output and the expected branch (empty = as expected).
  */
+import { SEED_KINDS } from "@study-studio/shared";
 import type {
   EntryRewriteInput,
   EntryRewriteOutput,
@@ -18,6 +19,7 @@ const JUDGE_PROFILE = { role: "前端开发", learning_focus: [{ topic: "Agent �
 const PROFILE = { role: "前端开发", learning_focus: ["Agent 架构"] };
 const RECENT_TOPICS = ["LangGraph", "RAG 重排", "Function Calling"];
 const CATEGORIES = ["Agent 框架", "RAG", "前端工程", "LLM 基础"];
+const KINDS = [...SEED_KINDS];
 
 function judgeCheck(expect: { learning: boolean; band: "high" | "uncertain" | "low"; action?: "keep" | "split"; candidates?: string[]; returned?: boolean }) {
   return (output: LearningJudgeOutput): string[] => {
@@ -359,7 +361,8 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       ],
       neighbor_entries: [{ entry_id: "kb_agent_loop", name: "Agent Loop", aliases: ["智能体循环"] }],
       ignored_names: [],
-      categories: CATEGORIES
+      categories: CATEGORIES,
+      kinds: KINDS
     },
     check: processingCheck({ decisions: ["new"] })
   },
@@ -390,7 +393,8 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       ],
       neighbor_entries: [{ entry_id: "kb_langgraph", name: "LangGraph", aliases: [] }],
       ignored_names: [],
-      categories: CATEGORIES
+      categories: CATEGORIES,
+      kinds: KINDS
     },
     check: processingCheck({ decisions: ["supplement"], matches: ["kb_hitl"] })
   },
@@ -431,7 +435,8 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       ],
       neighbor_entries: [{ entry_id: "kb_rag", name: "RAG", aliases: ["检索增强生成"] }],
       ignored_names: [],
-      categories: CATEGORIES
+      categories: CATEGORIES,
+      kinds: KINDS
     },
     check: processingCheck({ decisions: ["duplicate"] })
   },
@@ -459,7 +464,8 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       related_entries: [],
       neighbor_entries: [],
       ignored_names: [],
-      categories: CATEGORIES
+      categories: CATEGORIES,
+      kinds: KINDS
     },
     check: processingCheck({ decisions: ["reject"], rejectReason: "transient" })
   },
@@ -487,7 +493,8 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       related_entries: [{ ...AGENT_LOOP_ENTRY, similarity: 0.58, recency_relevance: 0.4 }],
       neighbor_entries: [],
       ignored_names: [],
-      categories: CATEGORIES
+      categories: CATEGORIES,
+      kinds: KINDS
     },
     check: processingCheck({ decisions: ["reject"], rejectReason: "low_information" })
   },
@@ -515,7 +522,8 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       related_entries: [{ ...AGENT_LOOP_ENTRY, similarity: 0.78, recency_relevance: 0.66 }],
       neighbor_entries: [{ entry_id: "kb_function_calling", name: "Function Calling", aliases: ["工具调用"] }],
       ignored_names: [],
-      categories: CATEGORIES
+      categories: CATEGORIES,
+      kinds: KINDS
     },
     check: processingCheck({ decisions: ["new", "supplement", "duplicate"] })
   },
@@ -543,7 +551,8 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       related_entries: [{ ...AGENT_LOOP_ENTRY, similarity: 0.74, recency_relevance: 0.69 }],
       neighbor_entries: [{ entry_id: "kb_function_calling", name: "Function Calling", aliases: ["工具调用"] }],
       ignored_names: [],
-      categories: CATEGORIES
+      categories: CATEGORIES,
+      kinds: KINDS
     },
     check: processingCheck({ decisions: ["new", "supplement"], contrasts: true })
   },
@@ -587,7 +596,8 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       ],
       neighbor_entries: [{ entry_id: "kb_langgraph", name: "LangGraph", aliases: [] }],
       ignored_names: [],
-      categories: CATEGORIES
+      categories: CATEGORIES,
+      kinds: KINDS
     },
     check: processingCheck({ decisions: ["supplement", "new"], contrasts: true, questionEvidence: true })
   }

@@ -72,7 +72,16 @@ export function ItemDetailPage({ itemId }: Props) {
 
   return (
     <>
-      <BackButton to={inboxHref} />
+      <BackButton to={inboxHref}>
+        <button
+          type="button"
+          className="btn"
+          data-organize-scope="item"
+          onClick={() => openOrganize({ scopes: ["item"], itemIds: [item.id], targetName: item.title })}
+        >
+          ✦ 整理
+        </button>
+      </BackButton>
       <div className="grid cols-main-side">
         <div className="stack">
           <div className="card">

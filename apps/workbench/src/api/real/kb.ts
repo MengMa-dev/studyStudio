@@ -5,10 +5,15 @@ import {
   kbDeleteResponseSchema,
   kbEntryDetailSchema,
   kbEntryPatchSchema,
+  kbGraphResponseSchema,
+  kbKindRenameResponseSchema,
+  kbKindRenameSchema,
+  kbKindsResponseSchema,
   kbTreeQuerySchema,
   kbTreeResponseSchema,
   type KbDeleteRequestInput,
   type KbEntryPatch,
+  type KbKindRename,
   type KbTreeQuery
 } from "@study-studio/shared";
 
@@ -18,6 +23,19 @@ export const realKbApi = {
   async getKbTree(rawQuery: Partial<KbTreeQuery> = {}) {
     const query = kbTreeQuerySchema.parse(rawQuery);
     return request(`${KB_API.tree}${qs({ q: query.q, kind: query.kind })}`, undefined, kbTreeResponseSchema);
+  },
+
+  async getKbGraph() {
+    return request(KB_API.graph, undefined, kbGraphResponseSchema);
+  },
+
+  async getKbKinds() {
+    return request(KB_API.kinds, undefined, kbKindsResponseSchema);
+  },
+
+  async renameKbKind(rename: KbKindRename) {
+    const body = kbKindRenameSchema.parse(rename);
+    return request(KB_API.kinds, { method: "PATCH", body: JSON.stringify(body) }, kbKindRenameResponseSchema);
   },
 
   async getKbEntry(id: string) {

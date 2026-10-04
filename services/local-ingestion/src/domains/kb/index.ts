@@ -1,5 +1,7 @@
 export { getKbTree } from "./tree.js";
+export { getKbGraph } from "./graph.js";
 export { getKbEntryDetail, parseEvidence } from "./detail.js";
+export { listKbKinds, renameKbKind } from "./kinds.js";
 export { patchKbEntry, recomputeAutoMastery, stripSuggestionSection, type PatchKbEntryResult } from "./edit.js";
 export { deleteKbEntries, getKbDeleteImpact, parseIdList, KB_TRASH_RETENTION_DAYS } from "./delete.js";
 export {

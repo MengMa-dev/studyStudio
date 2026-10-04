@@ -1,5 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
-import { kbEntryKindSchema, kbRelationTypeSchema, kbSourceKindSchema, type KbEntryKind, type KbRelationType, type KbSourceKind } from "@study-studio/shared";
+import {
+  LEGACY_KIND_NAMES,
+  OTHER_KIND,
+  kbRelationTypeSchema,
+  kbSourceKindSchema,
+  type KbEntryKind,
+  type KbRelationType,
+  type KbSourceKind
+} from "@study-studio/shared";
 import type { KbCategoryRow, KbEntryRow } from "../../db/types.js";
 import { EMPTY_MASTERY_SIGNALS, effectiveMastery, type MasterySignals } from "./mastery.js";
 
@@ -28,8 +36,8 @@ export const ENTRY_COLUMNS = [
 const ENTRY_SELECT = `SELECT ${ENTRY_COLUMNS.join(", ")} FROM kb_entries`;
 
 export function normalizeKind(kind: string | null): KbEntryKind {
-  const parsed = kbEntryKindSchema.safeParse(kind);
-  return parsed.success ? parsed.data : "other";
+  if (!kind?.trim()) return OTHER_KIND;
+  return Object.hasOwn(LEGACY_KIND_NAMES, kind) ? LEGACY_KIND_NAMES[kind]! : kind;
 }
 
 export function normalizeSourceKind(kind: string | null): KbSourceKind {

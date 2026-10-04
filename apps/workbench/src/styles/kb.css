@@ -47,41 +47,152 @@ a.organizing:hover {
   font-size: 13px;
 }
 .inbox-organize-hint {
-  margin: 0 0 12px;
+  color: var(--orange);
+  font-size: 13px;
 }
 
-.kb-side {
-  overflow: auto;
+.kb-graph-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
-.kb-preview {
-  display: grid;
-  gap: 10px;
-  align-content: start;
-}
-.kb-preview-title {
-  font-size: 16px;
-}
-.kb-preview-summary {
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.6;
-}
-.kb-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+
+/* Tree card header: search + kind filter merged into one quiet field. */
+.kb-search {
+  display: flex;
+  align-items: center;
   gap: 8px;
-}
-.kb-stats > div {
-  padding: 8px 10px;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: var(--bg);
+  color: var(--faint);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.kb-search:focus-within {
+  background: var(--panel);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.kb-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text);
+}
+.kb-search select {
+  flex: none;
+  max-width: 108px;
+  height: 26px;
+  padding: 0 20px 0 10px;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  outline: none;
+  appearance: none;
+  background: transparent
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23868e96' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 6px center;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+.kb-search select:hover {
+  color: var(--text);
+}
+
+/* Relation filter floats over the graph; the colored swatch doubles as the edge legend. */
+.kb-graph-filter {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
+}
+.kb-graph-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
   font-size: 12px;
   color: var(--muted);
+  cursor: pointer;
 }
-.kb-stats b {
-  display: block;
-  font-size: 18px;
+.kb-graph-filter button:hover {
   color: var(--text);
+}
+.kb-graph-filter button[aria-pressed="true"] {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
+.kb-graph-filter i {
+  width: 12px;
+  border-top: 2px solid;
+}
+
+.kb-entry-graph-canvas {
+  height: 200px;
+  margin-top: 4px;
+}
+.kb-entry-graph-canvas .kb-graph {
+  border: none;
+  border-radius: 8px;
+}
+.kb-entry-head {
+  display: grid;
+  gap: 8px;
+}
+.kb-toc {
+  position: relative;
+  width: max-content;
+}
+.kb-toc-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+}
+.kb-toc-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 320px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.kb-toc-pop .tree input,
+.kb-toc-pop .tree-del {
+  display: none;
+}
+.cols-main-side .card {
+  overflow-wrap: anywhere;
+}
+.wiki-body table,
+.wiki-body .katex-display {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .kb-row-cat {
   flex: none;
@@ -129,6 +240,78 @@ a.organizing:hover {
   white-space: nowrap;
   font-size: 13px;
 }
+.kb-source-row {
+  gap: 6px;
+  min-width: 0;
+}
+.kb-source-row .kb-source-head {
+  flex: 1;
+}
+.modal-panel.modal-full {
+  inset: 16px;
+  top: 16px;
+  left: 16px;
+  transform: none;
+  width: auto;
+  max-height: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.kb-compare-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+}
+.kb-compare-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.kb-compare-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.kb-compare-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  min-width: 0;
+}
+.kb-compare-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.kb-compare-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px;
+}
+.kb-compare-evidence {
+  margin-bottom: 12px;
+  display: grid;
+  gap: 6px;
+}
+@media (max-width: 900px) {
+  .kb-compare-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+}
 .kb-evidence {
   margin: 0;
   padding: 4px 10px;
@@ -164,4 +347,41 @@ a.organizing:hover {
 }
 .run-items td {
   vertical-align: top;
+}
+
+.kb-graph {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 1px 1px, #e3e6ea 1px, transparent 0) 0 0 / 22px 22px,
+    var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.kb-graph-canvas {
+  position: absolute;
+  inset: 0;
+}
+.kb-graph-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  pointer-events: none;
+}
+.kb-graph-legend i {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-top: 2px solid;
 }

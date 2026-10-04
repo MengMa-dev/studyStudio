@@ -1,6 +1,5 @@
 import { useCallback } from "react";
 import { Outlet, createHashHistory, createRootRoute, createRoute, createRouter, redirect, useRouterState } from "@tanstack/react-router";
-import { kbEntryKindSchema } from "@study-studio/shared";
 import { z } from "zod";
 import { ChatDock } from "@/components/chat/ChatDock";
 import { AppShell } from "@/components/layout/AppShell";
@@ -65,7 +64,7 @@ const homeRoute = createRoute({
 
 const wikiSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
-  kind: kbEntryKindSchema.optional().catch(undefined),
+  kind: z.string().trim().min(1).optional().catch(undefined),
   sel: z.string().optional().catch(undefined)
 });
 

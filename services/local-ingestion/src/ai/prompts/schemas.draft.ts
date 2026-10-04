@@ -141,11 +141,11 @@ export const knowledgeProcessingInputSchema = z.object({
   ),
   neighbor_entries: z.array(z.object({ entry_id: z.string(), name: z.string(), aliases: z.array(z.string()) })),
   ignored_names: z.array(z.string()),
-  categories: z.array(z.string())
+  categories: z.array(z.string()),
+  kinds: z.array(z.string())
 });
 export type KnowledgeProcessingInput = z.infer<typeof knowledgeProcessingInputSchema>;
 
-export const ENTRY_KINDS = ["concept", "method", "tool", "library", "pattern", "practice", "other"] as const;
 export const REJECT_REASONS = ["off_topic", "low_information", "navigational", "transient", "ignored"] as const;
 export const RELATION_TYPES = ["part_of", "prerequisite", "related", "contrasts"] as const;
 
@@ -167,7 +167,7 @@ const concept = z.object({
   name: z.string(),
   match: z.string().describe('已有词条 entry_id（来自 related_entries / neighbor_entries），或 "new"'),
   aliases: z.array(z.string()),
-  kind: z.enum(ENTRY_KINDS),
+  kind: z.string().describe("优先取自 kinds；都不合适时给新类型名"),
   evidence: z.array(evidence).min(1),
   patch: z
     .object({
@@ -216,7 +216,7 @@ export const entryRewriteInputSchema = z.object({
     entry_id: z.string(),
     name: z.string(),
     aliases: z.array(z.string()),
-    kind: z.enum(ENTRY_KINDS),
+    kind: z.string(),
     category: z.string(),
     summary: z.string(),
     body_markdown: z.string(),

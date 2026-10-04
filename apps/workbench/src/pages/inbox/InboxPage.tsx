@@ -180,6 +180,7 @@ export function InboxPage({ type, status, onTypeChange, onStatusChange }: Props)
         <h1>收集箱</h1>
         <span className="sub">共 {list.data?.total ?? trash.data?.entries.length ?? "—"} 条</span>
         <div className="actions">
+          {type === "trash" ? null : <InboxOrganizeHint />}
           <button
             type="button"
             className="btn"
@@ -195,7 +196,6 @@ export function InboxPage({ type, status, onTypeChange, onStatusChange }: Props)
           </button>
         </div>
       </div>
-      {type === "trash" ? null : <InboxOrganizeHint selectedItemIds={impactIds.itemIds} />}
       <div className={`card inbox-card ${styles.card}`}>
         <div className="tabs">
           {TABS.map((tab) => (
@@ -268,45 +268,40 @@ export function InboxPage({ type, status, onTypeChange, onStatusChange }: Props)
                   </button>
                 ))}
               </div>
-            </div>
-
-            {selected.size > 0 ? (
-              <div className="batch-bar">
-                已选 {selected.size} 项
-                {stats.hidden ? (
-                  <span className="small" style={{ opacity: 0.75 }}>
-                    （{stats.hidden} 项不在当前页）
+              {selected.size > 0 ? (
+                <div className="batch-inline">
+                  <span className="batch-count">
+                    已选 {selected.size} 项{stats.hidden ? <span style={{ opacity: 0.75 }}>（{stats.hidden} 项不在当前页）</span> : null}
                   </span>
-                ) : null}
-                <div className="grow" />
-                {impactIds.itemIds.length ? (
-                  <button type="button" className="btn sm" onClick={() => bulkRead.mutate()}>
-                    标为已读
+                  {impactIds.itemIds.length ? (
+                    <button type="button" className="btn sm" onClick={() => bulkRead.mutate()}>
+                      标为已读
+                    </button>
+                  ) : null}
+                  {impactIds.itemIds.length ? (
+                    <button type="button" className="btn sm" onClick={() => setTagOpen(true)}>
+                      加标签
+                    </button>
+                  ) : null}
+                  {impactIds.itemIds.length ? (
+                    <button
+                      type="button"
+                      className="btn sm"
+                      data-organize-scope="inbox_selected"
+                      onClick={() => openOrganize({ scopes: ["inbox_selected", "inbox_pending", "inbox_all"], itemIds: impactIds.itemIds })}
+                    >
+                      ✦ 整理
+                    </button>
+                  ) : null}
+                  <button type="button" className="btn sm danger" onClick={() => setDeleteOpen(true)}>
+                    删除
                   </button>
-                ) : null}
-                {impactIds.itemIds.length ? (
-                  <button type="button" className="btn sm" onClick={() => setTagOpen(true)}>
-                    加标签
+                  <button type="button" className="btn sm ghost" onClick={() => clear()}>
+                    取消
                   </button>
-                ) : null}
-                {impactIds.itemIds.length ? (
-                  <button
-                    type="button"
-                    className="btn sm"
-                    data-organize-scope="inbox_selected"
-                    onClick={() => openOrganize({ scopes: ["inbox_selected", "inbox_pending", "inbox_all"], itemIds: impactIds.itemIds })}
-                  >
-                    ✦ 整理
-                  </button>
-                ) : null}
-                <button type="button" className="btn sm danger" onClick={() => setDeleteOpen(true)}>
-                  删除
-                </button>
-                <button type="button" className="btn sm ghost" onClick={() => clear()}>
-                  取消
-                </button>
-              </div>
-            ) : null}
+                </div>
+              ) : null}
+            </div>
 
             <div className="inbox-scroll">
               {list.isLoading ? <div className="empty">加载中…</div> : null}

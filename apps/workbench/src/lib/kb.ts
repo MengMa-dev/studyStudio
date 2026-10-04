@@ -1,6 +1,4 @@
 import type {
-  KbEntryKind,
-  KbRelation,
   KbSourceKind,
   OrganizeDecision,
   OrganizeRunItemStatus,
@@ -9,18 +7,6 @@ import type {
   OrganizeStage,
   OrganizeTrigger
 } from "@study-studio/shared";
-
-export const KIND_LABEL: Record<KbEntryKind, string> = {
-  concept: "概念",
-  method: "方法",
-  algorithm: "算法",
-  model: "模型",
-  paper: "论文",
-  other: "其他"
-};
-
-/** Kinds offered in the type filter (08: 概念/方法/算法/模型/论文). */
-export const FILTER_KINDS: KbEntryKind[] = ["concept", "method", "algorithm", "model", "paper"];
 
 export function masteryColor(mastery: number | null): string {
   if (mastery === null) return "#ced4da";
@@ -36,8 +22,6 @@ export function masteryPercent(mastery: number | null): string {
   return mastery === null ? "—" : `${Math.round(mastery * 100)}%`;
 }
 
-export const WEAK_MASTERY = 0.4;
-
 export const SOURCE_KIND_LABEL: Record<KbSourceKind, string> = {
   official_doc: "官方文档",
   repo: "代码仓库",
@@ -46,18 +30,6 @@ export const SOURCE_KIND_LABEL: Record<KbSourceKind, string> = {
   ai_answer: "AI 回答",
   other: "其他"
 };
-
-type RelationGroup = { label: string; match: (relation: KbRelation) => boolean };
-
-/** Display order for related entries in the detail sidebar (08: 属于/组成/前置/对比/相关). */
-export const RELATION_GROUPS: RelationGroup[] = [
-  { label: "属于", match: (r) => r.type === "part_of" && r.direction === "out" },
-  { label: "组成部分", match: (r) => r.type === "part_of" && r.direction === "in" },
-  { label: "前置知识", match: (r) => r.type === "prerequisite" && r.direction === "in" },
-  { label: "是它的前置", match: (r) => r.type === "prerequisite" && r.direction === "out" },
-  { label: "对比", match: (r) => r.type === "contrasts" },
-  { label: "相关", match: (r) => r.type === "related" }
-];
 
 export const TRIGGER_LABEL: Record<OrganizeTrigger, string> = {
   manual: "手动",

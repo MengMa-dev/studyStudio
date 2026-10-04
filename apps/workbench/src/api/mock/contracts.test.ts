@@ -9,6 +9,34 @@ describe("mock 知识库 / 整理 / AI 接口符合共享契约", () => {
     setMockOrganizeTickMs(0);
   });
 
+  it("知识图谱", async () => {
+    const graph = await mockApi.getKbGraph();
+    expect(graph.edges).toContainEqual({ src: "kb-cross", dst: "kb-rerank", type: "part_of" });
+    expect(graph.nodes.find((node) => node.id === "kb-prompt-cache")?.categoryId).toBeNull();
+    await mockApi.deleteKbEntries({ ids: ["kb-cross"] });
+    const after = await mockApi.getKbGraph();
+    expect(after.nodes.some((node) => node.id === "kb-cross")).toBe(false);
+    expect(after.edges.some((edge) => edge.src === "kb-cross" || edge.dst === "kb-cross")).toBe(false);
+  });
+
+  it("词条类型：列表、改名合并、编辑类型", async () => {
+    const { kinds } = await mockApi.getKbKinds();
+    expect(kinds.slice(0, 3).map((kind) => kind.name)).toEqual(["概念", "方法", "算法"]);
+    expect(kinds.find((kind) => kind.name === "工具")).toEqual({ name: "工具", entryCount: 0, seed: true });
+    const count = (list: typeof kinds, name: string) => list.find((kind) => kind.name === name)?.entryCount;
+
+    expect(await mockApi.renameKbKind({ from: "论文", to: "论文" })).toEqual({ updated: 0 });
+    expect(await mockApi.renameKbKind({ from: "论文", to: "概念" })).toEqual({ updated: count(kinds, "论文") });
+    const merged = (await mockApi.getKbKinds()).kinds;
+    expect(count(merged, "概念")).toBe(count(kinds, "概念")! + count(kinds, "论文")!);
+    expect(count(merged, "论文")).toBe(0);
+
+    await mockApi.patchKbEntry("kb-bm25", { kind: "评测指标" });
+    const custom = (await mockApi.getKbKinds()).kinds;
+    expect(custom.at(-1)).toEqual({ name: "评测指标", entryCount: 1, seed: false });
+    expect((await mockApi.getKbEntry("kb-bm25")).kind).toBe("评测指标");
+  });
+
   it("知识库目录、详情、编辑与删除", async () => {
     const tree = await mockApi.getKbTree();
     expect(tree.mode).toBe("tree");

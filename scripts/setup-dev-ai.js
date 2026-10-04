@@ -18,7 +18,7 @@ const KEY_ALIASES = {
 };
 
 const providers = [
-  { id: "ollama", name: "Ollama（本地）", type: "ollama", base_url: "http://127.0.0.1:11434/api", default_model: "qwen2.5:7b" },
+  { id: "ollama", name: "Ollama（本地）", type: "ollama", base_url: "http://127.0.0.1:11434/api", default_model: "qwen3:4b-instruct" },
   { id: "gemini", name: "Google Gemini", type: "google", base_url: "https://generativelanguage.googleapis.com/v1beta", default_model: "gemini-3.8-flash" },
   {
     id: "openrouter",
@@ -31,7 +31,7 @@ const providers = [
 ];
 
 const taskModels = [
-  { task: "learning_judge", provider_id: "ollama", model: "qwen2.5:7b", fallback_provider_id: "groq", fallback_model: "openai/gpt-oss-120b" },
+  { task: "learning_judge", provider_id: "ollama", model: "qwen3:4b-instruct", fallback_provider_id: "groq", fallback_model: "openai/gpt-oss-120b" },
   {
     task: "knowledge_processing",
     provider_id: "gemini",
@@ -61,7 +61,7 @@ async function check(provider, apiKey) {
   if (provider.type === "ollama") {
     const res = await fetch("http://127.0.0.1:11434/api/tags", { signal });
     const names = (await res.json()).models.map((m) => m.name);
-    const missing = ["qwen2.5:7b", "nomic-embed-text:latest"].filter((m) => !names.includes(m));
+    const missing = ["qwen3:4b-instruct", "nomic-embed-text:latest"].filter((m) => !names.includes(m));
     return missing.length ? `缺少模型 ${missing.join(", ")}` : "ok";
   }
   if (!apiKey) return "未找到 key";

@@ -1,8 +1,8 @@
 import type { KnowledgeProcessingInput } from "./schemas.draft";
 
-export const PROMPT_VERSION = "knowledge_processing@1";
+export const PROMPT_VERSION = "knowledge_processing@2";
 
-export const SYSTEM = `你是个人知识库的「知识处理」模块。输入是一个收集条目（网页 / 文档正文，或一段问答会话线程）以及知识库中与它相关的已有词条。你要一次完成：判定是否入库与新旧、抽取知识、对齐已有词条、为已有词条写补丁或为新知识写初版词条。知识库是 wiki 式的：每个词条是一个概念 / 方法 / 工具，正文为 Markdown。
+export const SYSTEM = `你是个人知识库的「知识处理」模块。输入是一个收集条目（网页 / 文档正文，或一段问答会话线程）以及知识库中与它相关的已有词条。你要一次完成：判定是否入库与新旧、抽取知识、对齐已有词条、为已有词条写补丁或为新知识写初版词条。知识库是 wiki 式的：每个词条是一个知识点，正文为 Markdown。
 
 ## 判定 decision
 - new：知识库中还没有的知识。新建词条（可同时给已有词条打补丁）。
@@ -43,6 +43,7 @@ export const SYSTEM = `你是个人知识库的「知识处理」模块。输入
 
 ## 新词条（match="new" 时填写，patch 为 null）
 - category：优先从 categories 中选择，没有合适的再给新分类名。
+- kind：词条的性质（是什么东西），不是主题。优先从 kinds 中选择；都明显不合适时才给新类型名：2–6 字中文名词（如「评测指标」「数据集」），不得与 kinds 中已有类型同义，不得用主题名（主题写在 category）。
 - summary：一两句话说明它是什么、解决什么问题。
 - body_markdown：初版正文，用「## 」二级标题分节（如 定义 / 原理 / 用法 / 注意事项），只写条目中有依据的内容，简洁准确。
 - completeness：covered 为已覆盖的方面，missing 为该主题重要但条目未涉及的方面。

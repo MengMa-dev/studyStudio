@@ -16,6 +16,8 @@ export type ProviderRuntime = {
 const DEFAULT_EMBED_DIMS = 768;
 /** Ollama defaults to a 4096-token window and silently truncates longer prompts (judge inputs often exceed it). */
 const OLLAMA_NUM_CTX = 16384;
+/** Thinking models (qwen3) emit hundreds of reasoning tokens first, too slow on CPU-only machines. */
+const OLLAMA_THINK = false;
 
 export type CreateProviderRuntimeOptions = {
   mock?: MockProviderOptions;
@@ -48,7 +50,7 @@ export function createProviderRuntime(config: ProviderConfig, options: CreatePro
         languageModel: (modelId) => ({
           model: wrapLanguageModel({
             model: ollama(modelId),
-            middleware: defaultSettingsMiddleware({ settings: { providerOptions: { ollama: { options: { num_ctx: OLLAMA_NUM_CTX } } } } })
+            middleware: defaultSettingsMiddleware({ settings: { providerOptions: { ollama: { think: OLLAMA_THINK, options: { num_ctx: OLLAMA_NUM_CTX } } } } })
           }),
           wrapTopLevelUnion: false,
           supportsStructuredOutputs: true

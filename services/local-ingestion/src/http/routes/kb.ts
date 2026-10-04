@@ -1,7 +1,17 @@
 import type { Hono } from "hono";
-import { kbDeleteImpactQuerySchema, kbDeleteRequestSchema, kbEntryPatchSchema, kbTreeQuerySchema } from "@study-studio/shared";
+import { kbDeleteImpactQuerySchema, kbDeleteRequestSchema, kbEntryPatchSchema, kbKindRenameSchema, kbTreeQuerySchema } from "@study-studio/shared";
 import type { AppServices } from "../app.js";
-import { deleteKbEntries, getKbDeleteImpact, getKbEntryDetail, getKbTree, parseIdList, patchKbEntry } from "../../domains/kb/index.js";
+import {
+  deleteKbEntries,
+  getKbDeleteImpact,
+  getKbEntryDetail,
+  getKbGraph,
+  getKbTree,
+  listKbKinds,
+  parseIdList,
+  patchKbEntry,
+  renameKbKind
+} from "../../domains/kb/index.js";
 
 async function readJson(c: { req: { json: () => Promise<unknown> } }): Promise<{ ok: true; body: unknown } | { ok: false }> {
   try {
@@ -20,6 +30,18 @@ export function registerKbRoutes(api: Hono, services: AppServices): void {
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "invalid_query" }, 422);
     return c.json(getKbTree(db, parsed.data));
   });
+
+  api.get("/kb/kinds", (c) => c.json(listKbKinds(db)));
+
+  api.patch("/kb/kinds", async (c) => {
+    const json = await readJson(c);
+    if (!json.ok) return c.json({ error: "invalid_json" }, 400);
+    const parsed = kbKindRenameSchema.safeParse(json.body);
+    if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "invalid_request" }, 422);
+    return c.json(renameKbKind(db, parsed.data, new Date().toISOString()));
+  });
+
+  api.get("/kb/graph", (c) => c.json(getKbGraph(db)));
 
   // Must precede `/kb/entries/:id`.
   api.get("/kb/entries/impact", (c) => {

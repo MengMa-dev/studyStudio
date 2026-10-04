@@ -67,7 +67,7 @@ test("tree: categories with recursive part_of nesting, markers and category stat
   assert.equal(cross.userEdited, true);
 
   const agent = tree.categories[1]!.children[0]!;
-  assert.equal(agent.kind, "other");
+  assert.equal(agent.kind, "设计模式");
   assert.equal(agent.stale, true);
   assert.equal(agent.orphan, true);
   assert.equal(agent.mastery, 0.5, "no sources keeps the stored value");
@@ -110,10 +110,10 @@ test("tree: q / kind switch to flat mode", (t) => {
     getKbTree(appDb.db, { q: "cross-ENCODER" }).entries.map((e) => e.id),
     ["kb-cross"]
   );
-  const models = getKbTree(appDb.db, { kind: "model" });
+  const models = getKbTree(appDb.db, { kind: "模型" });
   assert.deepEqual(models.entries.map((e) => e.id).sort(), ["kb-bi", "kb-cross"]);
   assert.equal(models.total, 2);
-  const misc = getKbTree(appDb.db, { kind: "paper" }).entries[0]!;
+  const misc = getKbTree(appDb.db, { kind: "论文" }).entries[0]!;
   assert.equal(misc.categoryId, null);
   assert.equal(misc.categoryName, null);
   assert.equal(getKbTree(appDb.db, { q: "已删除" }).total, 0);
@@ -131,7 +131,7 @@ test("detail: body, notes, sources/evidence, relations with direction, same cate
       ["entry", "kb-rerank", "重排"]
     ]
   );
-  assert.equal(detail.kind, "method");
+  assert.equal(detail.kind, "方法");
   assert.match(detail.bodyMarkdown, /## 定义/);
   assert.deepEqual(detail.completeness, { covered: ["定义"], missing: ["评估"] });
   assert.equal(detail.patchCount, 9);

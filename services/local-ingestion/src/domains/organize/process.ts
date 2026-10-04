@@ -6,6 +6,8 @@ import { REJECT_REASONS, type KnowledgeProcessingInput, type KnowledgeProcessing
 import type { ItemExposureRow } from "../../db/types.js";
 import { estimateTokens } from "../../search/chunk.js";
 import type { EngagementLevel } from "./constants.js";
+import { normalizeKind } from "../kb/queries.js";
+import { kindVocabulary } from "./kinds.js";
 import { callLlm, type LlmContext } from "./llm.js";
 import { normalizeHeading } from "./normalize.js";
 import { applyValueScoreFallback } from "./postprocess.js";
@@ -222,7 +224,7 @@ export function buildProcessingInput(
         entry_id: entry.id,
         name: entry.name,
         aliases: entry.aliases,
-        kind: entry.kind ?? "concept",
+        kind: normalizeKind(entry.kind),
         summary: entry.summary ?? "",
         similarity: round(scored.similarity),
         recency_relevance: round(scored.recency_relevance),
@@ -235,7 +237,8 @@ export function buildProcessingInput(
       top.map((entry) => entry.entry_id)
     ),
     ignored_names: ctx.ignoredNames.slice(0, MAX_IGNORED_NAMES),
-    categories: categoryNames(ctx.db)
+    categories: categoryNames(ctx.db),
+    kinds: kindVocabulary(ctx.db)
   };
 }
 

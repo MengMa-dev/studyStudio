@@ -2,9 +2,37 @@ import { z } from "zod";
 
 import { inboxItemTypeSchema, noteSummarySchema } from "./inbox";
 
-/** Unknown kinds coming from the organize pipeline are stored/returned as `other`. */
-export const kbEntryKindSchema = z.enum(["concept", "method", "algorithm", "model", "paper", "other"]);
-export type KbEntryKind = z.infer<typeof kbEntryKindSchema>;
+/** Entry kinds are free-form Chinese names: seeds plus kinds the organize pipeline creates (14 A1). */
+export const SEED_KINDS = ["概念", "方法", "算法", "模型", "论文", "工具", "库与框架", "设计模式", "最佳实践", "其他"] as const;
+export const OTHER_KIND = "其他";
+export const MAX_KINDS = 20;
+export const MAX_KIND_LENGTH = 8;
+/** Legacy enum codes (pre-005 rows, trash snapshots, models answering in English). */
+export const LEGACY_KIND_NAMES: Record<string, string> = {
+  concept: "概念",
+  method: "方法",
+  algorithm: "算法",
+  model: "模型",
+  paper: "论文",
+  tool: "工具",
+  library: "库与框架",
+  pattern: "设计模式",
+  practice: "最佳实践",
+  other: "其他"
+};
+
+export const kbEntryKindSchema = z.string().trim().min(1).max(MAX_KIND_LENGTH);
+export type KbEntryKind = string;
+
+export const kbKindSummarySchema = z.object({ name: z.string(), entryCount: z.number().int().nonnegative(), seed: z.boolean() });
+export type KbKindSummary = z.infer<typeof kbKindSummarySchema>;
+export const kbKindsResponseSchema = z.object({ kinds: z.array(kbKindSummarySchema) });
+export type KbKindsResponse = z.infer<typeof kbKindsResponseSchema>;
+/** Rename; when `to` already exists this merges `from` into it. */
+export const kbKindRenameSchema = z.object({ from: kbEntryKindSchema, to: kbEntryKindSchema });
+export type KbKindRename = z.infer<typeof kbKindRenameSchema>;
+export const kbKindRenameResponseSchema = z.object({ updated: z.number().int().nonnegative() });
+export type KbKindRenameResponse = z.infer<typeof kbKindRenameResponseSchema>;
 
 export const kbRelationTypeSchema = z.enum(["part_of", "prerequisite", "related", "contrasts"]);
 export type KbRelationType = z.infer<typeof kbRelationTypeSchema>;
@@ -204,7 +232,8 @@ export const kbEntryPatchSchema = z
   .object({
     bodyMarkdown: z.string().max(500_000).optional(),
     mastery: mastery.nullable().optional(),
-    categoryId: z.string().min(1).nullable().optional()
+    categoryId: z.string().min(1).nullable().optional(),
+    kind: kbEntryKindSchema.optional()
   })
   .refine((value) => Object.keys(value).length > 0, { message: "at least one field required" });
 export type KbEntryPatch = z.infer<typeof kbEntryPatchSchema>;
@@ -247,8 +276,27 @@ export const kbDeleteResponseSchema = z.object({
 });
 export type KbDeleteResponse = z.infer<typeof kbDeleteResponseSchema>;
 
+export const kbGraphResponseSchema = z.object({
+  categories: z.array(z.object({ id: z.string(), name: z.string() })),
+  nodes: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      kind: kbEntryKindSchema,
+      categoryId: z.string().nullable(),
+      mastery: mastery.nullable(),
+      stale: z.boolean(),
+      orphan: z.boolean()
+    })
+  ),
+  edges: z.array(z.object({ src: z.string(), dst: z.string(), type: kbRelationTypeSchema }))
+});
+export type KbGraphResponse = z.infer<typeof kbGraphResponseSchema>;
+
 export const KB_API = {
   tree: "/v1/kb/tree",
+  graph: "/v1/kb/graph",
+  kinds: "/v1/kb/kinds",
   entry: (id: string) => `/v1/kb/entries/${encodeURIComponent(id)}`,
   patch: (id: string) => `/v1/kb/entries/${encodeURIComponent(id)}`,
   impact: "/v1/kb/entries/impact",

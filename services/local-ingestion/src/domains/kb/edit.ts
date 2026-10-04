@@ -91,6 +91,7 @@ export async function patchKbEntry(
     if (patch.categoryId !== undefined) {
       db.prepare("UPDATE kb_entries SET category_id = ? WHERE id = ?").run(patch.categoryId, id);
     }
+    if (patch.kind !== undefined) db.prepare("UPDATE kb_entries SET kind = ? WHERE id = ?").run(patch.kind, id);
     db.prepare("UPDATE kb_entries SET updated_at = ? WHERE id = ?").run(now, id);
     return "ok";
   });

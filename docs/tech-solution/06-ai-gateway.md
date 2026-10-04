@@ -33,7 +33,7 @@ services/local-ingestion/src/ai/
 
 | 任务 | 主模型 | 备用模型 |
 | --- | --- | --- |
-| 学习判定 | Ollama `qwen2.5:7b`（本地） | Groq `openai/gpt-oss-120b` |
+| 学习判定 | Ollama `qwen3:4b-instruct`（本地，Qwen3-4B-Instruct-2507） | Groq `openai/gpt-oss-120b` |
 | 知识处理 | Gemini `gemini-3.8-flash` | OpenRouter `nvidia/nemotron-3-super-120b-a12b:free` |
 | 词条重写（含摘要与要点） | Gemini `gemini-3.5-flash-lite` | OpenRouter `qwen/qwen3.8-27b:free` |
 | Embedding | Ollama `nomic-embed-text`（768 维） | — |

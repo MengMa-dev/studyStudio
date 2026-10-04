@@ -1,18 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { KbEntryDetail } from "@study-studio/shared";
+import { MAX_KIND_LENGTH, type KbEntryDetail, type KbEntryPatch, type KbEntrySource } from "@study-studio/shared";
 import { api } from "@/api";
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { NotesCard } from "@/components/notes/NotesCard";
 import { PendingOrganizeBar } from "@/components/organize/PendingOrganizeBar";
-import { RichMarkdown } from "@/components/ui/RichMarkdown";
 import { formatCapturedAt, siteShort } from "@/lib/format";
-import { formatDateTime, KIND_LABEL, masteryColor, masteryLabel, masteryPercent, RELATION_GROUPS, SOURCE_KIND_LABEL } from "@/lib/kb";
+import { formatDateTime, masteryColor, masteryLabel, masteryPercent, SOURCE_KIND_LABEL } from "@/lib/kb";
+import { egoGraph } from "@/lib/kb-graph";
+import { useKbUiStore } from "@/stores/kb";
 import { useOrganizeStore } from "@/stores/organize";
 import { useUiStore } from "@/stores/ui";
+import { KbCompareDialog } from "./KbCompareDialog";
 import { KbDeleteDialog } from "./KbDeleteDialog";
+import { KbEntryBody } from "./KbEntryBody";
+import { KbGraph } from "./KbGraph";
 import { ConceptChip } from "./KbPreview";
+import { KbCategoryTree } from "./KbTree";
+
+const NO_IDS: string[] = [];
+const NO_CHECKED = new Set<string>();
+const noop = () => {};
 
 type Props = { entryId: string };
 
@@ -25,19 +34,21 @@ export function KbEntryPage({ entryId }: Props) {
   const detail = useQuery({ queryKey: detailKey, queryFn: () => api.getKbEntry(entryId) });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [kindDraft, setKindDraft] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const kinds = useQuery({ queryKey: ["kb", "kinds"], queryFn: () => api.getKbKinds(), enabled: editing });
 
   useEffect(() => {
     setEditing(false);
   }, [entryId]);
 
   const save = useMutation({
-    mutationFn: (bodyMarkdown: string) => api.patchKbEntry(entryId, { bodyMarkdown }),
-    onSuccess: async (updated) => {
+    mutationFn: (patch: KbEntryPatch) => api.patchKbEntry(entryId, patch),
+    onSuccess: async (updated, patch) => {
       queryClient.setQueryData(detailKey, updated);
       setEditing(false);
-      await queryClient.invalidateQueries({ queryKey: ["kb", "tree"] });
-      pushToast({ message: "已保存，知识点标记为待整理（不会自动整理）" });
+      await queryClient.invalidateQueries({ queryKey: ["kb"] });
+      pushToast({ message: patch.bodyMarkdown === undefined ? "已保存" : "已保存，知识点标记为待整理（不会自动整理）" });
     },
     onError: (error) => pushToast({ message: `保存失败：${error instanceof Error ? error.message : String(error)}` })
   });
@@ -52,49 +63,54 @@ export function KbEntryPage({ entryId }: Props) {
   }
   if (!detail.data) return <div className="empty">加载中…</div>;
   const entry = detail.data;
-  const unsaved = editing && draft !== entry.bodyMarkdown;
+  const newKind = kindDraft.trim();
+  const kindChanged = Boolean(newKind) && newKind !== entry.kind;
+  const unsaved = editing && (draft !== entry.bodyMarkdown || kindChanged);
   const unusedNotes = entry.notes.filter((note) => !note.usedAt).length;
   const organizeThis = () => openOrganize({ scopes: ["entry"], entryIds: [entry.id], targetName: entry.name });
 
   return (
     <>
-      <div className="row small crumbs back-row">
-        <Link to="/wiki" search={{ sel: entry.id }} className="btn ghost back-btn">
-          <svg
-            className="i"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="m15 6-6 6 6 6" />
-          </svg>
-          返回
-        </Link>
-        <Link to="/wiki">知识库</Link>
-        {entry.breadcrumb.map((crumb, index) => {
-          const last = index === entry.breadcrumb.length - 1;
-          return (
-            <span key={`${crumb.type}-${crumb.id ?? index}`} className="row" style={{ gap: 8 }}>
-              <span className="faint">/</span>
-              {last ? (
-                <span style={{ fontWeight: 600 }}>{crumb.name}</span>
-              ) : crumb.type === "entry" && crumb.id ? (
-                <Link to="/wiki/$entryId" params={{ entryId: crumb.id }}>
-                  {crumb.name}
-                </Link>
-              ) : (
-                <Link to="/wiki" search={{ sel: entry.id }}>
-                  {crumb.name}
-                </Link>
-              )}
-            </span>
-          );
-        })}
+      <div className="back-row kb-entry-head">
+        <div className="row wrap small crumbs">
+          <Link to="/wiki" search={{ sel: entry.id }} className="btn ghost back-btn">
+            <svg
+              className="i"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m15 6-6 6 6 6" />
+            </svg>
+            返回
+          </Link>
+          <Link to="/wiki">知识库</Link>
+          {entry.breadcrumb.map((crumb, index) => {
+            const last = index === entry.breadcrumb.length - 1;
+            return (
+              <span key={`${crumb.type}-${crumb.id ?? index}`} className="row" style={{ gap: 8 }}>
+                <span className="faint">/</span>
+                {last ? (
+                  <span style={{ fontWeight: 600 }}>{crumb.name}</span>
+                ) : crumb.type === "entry" && crumb.id ? (
+                  <Link to="/wiki/$entryId" params={{ entryId: crumb.id }}>
+                    {crumb.name}
+                  </Link>
+                ) : (
+                  <Link to="/wiki" search={{ sel: entry.id }}>
+                    {crumb.name}
+                  </Link>
+                )}
+              </span>
+            );
+          })}
+        </div>
+        <KbToc activeId={entry.id} />
       </div>
 
       <div className="grid cols-main-side">
@@ -108,7 +124,16 @@ export function KbEntryPage({ entryId }: Props) {
                 <button type="button" className="btn sm" onClick={() => setEditing(false)}>
                   取消
                 </button>
-                <button type="button" className="btn sm primary" disabled={save.isPending} onClick={() => save.mutate(draft)}>
+                <button
+                  type="button"
+                  className="btn sm primary"
+                  disabled={save.isPending}
+                  onClick={() => {
+                    const patch = { ...(draft !== entry.bodyMarkdown && { bodyMarkdown: draft }), ...(kindChanged && { kind: newKind }) };
+                    if (Object.keys(patch).length) save.mutate(patch);
+                    else setEditing(false);
+                  }}
+                >
                   保存
                 </button>
               </>
@@ -119,6 +144,7 @@ export function KbEntryPage({ entryId }: Props) {
                   className="btn sm"
                   onClick={() => {
                     setDraft(entry.bodyMarkdown);
+                    setKindDraft(entry.kind);
                     setEditing(true);
                   }}
                 >
@@ -133,7 +159,7 @@ export function KbEntryPage({ entryId }: Props) {
                   </summary>
                   <div className="menu-pop">
                     <Link to="/wiki" search={{ sel: entry.id }}>
-                      在知识库中定位
+                      在图谱中查看
                     </Link>
                     <button type="button" className="danger" onClick={() => setDeleteOpen(true)}>
                       删除知识点
@@ -149,7 +175,26 @@ export function KbEntryPage({ entryId }: Props) {
             </div>
           ) : null}
           <div className="chips" style={{ marginTop: 10 }}>
-            <span className="tag blue">{KIND_LABEL[entry.kind]}</span>
+            {editing ? (
+              <>
+                <input
+                  className="input"
+                  style={{ width: 120 }}
+                  aria-label="类型"
+                  list="kb-kind-options"
+                  maxLength={MAX_KIND_LENGTH}
+                  value={kindDraft}
+                  onChange={(event) => setKindDraft(event.target.value)}
+                />
+                <datalist id="kb-kind-options">
+                  {kinds.data?.kinds.map((kind) => (
+                    <option key={kind.name} value={kind.name} />
+                  ))}
+                </datalist>
+              </>
+            ) : (
+              <span className="tag blue">{entry.kind}</span>
+            )}
             <span className="tag">{entry.categoryName ?? "未归类"}</span>
             {entry.userEdited ? <span className="tag purple">✎ 手动编辑过</span> : null}
             {entry.stale ? <span className="tag orange">↻ 来源有变化，下次整理更新</span> : null}
@@ -179,7 +224,7 @@ export function KbEntryPage({ entryId }: Props) {
               </div>
             </div>
           ) : (
-            <EntryBody entry={entry} />
+            <KbEntryBody entry={entry} />
           )}
 
           <div className="small faint" style={{ marginTop: 20 }}>
@@ -188,6 +233,7 @@ export function KbEntryPage({ entryId }: Props) {
         </div>
 
         <div className="stack">
+          <EntryGraphCard entryId={entry.id} />
           <MasteryCard entry={entry} />
           <NotesCard
             scope="entry"
@@ -197,7 +243,6 @@ export function KbEntryPage({ entryId }: Props) {
             notes={entry.notes}
             invalidateKey={detailKey}
           />
-          <RelationsCard entry={entry} />
           <SourcesCard entry={entry} />
           {entry.sameCategory.length ? (
             <div className="card">
@@ -217,44 +262,6 @@ export function KbEntryPage({ entryId }: Props) {
   );
 }
 
-function EntryBody({ entry }: { entry: KbEntryDetail }) {
-  const { contrasts, faqs } = entry.renderedSections;
-  return (
-    <>
-      {entry.summary ? <p className="lead">{entry.summary}</p> : null}
-      <h3>正文</h3>
-      <RichMarkdown markdown={entry.bodyMarkdown || "_暂无正文_"} className="wiki-body" />
-      {contrasts.map((contrast) => (
-        <section key={contrast.entryId} className="kb-rendered">
-          <h3>
-            与{" "}
-            <Link to="/wiki/$entryId" params={{ entryId: contrast.entryId }}>
-              {contrast.name}
-            </Link>{" "}
-            的区别
-          </h3>
-          <p className="wiki-body">{contrast.description}</p>
-        </section>
-      ))}
-      {faqs.length ? (
-        <section className="kb-rendered">
-          <h3>常见疑问</h3>
-          <ul className="wiki-body">
-            {faqs.map((faq) => (
-              <li key={`${faq.itemId}-${faq.question}`}>
-                <Link to="/item/$itemId" params={{ itemId: faq.turnItemId ?? faq.itemId }}>
-                  {faq.question}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-      {entry.completeness?.missing.length ? <div className="small faint kb-missing">尚未覆盖：{entry.completeness.missing.join("、")}</div> : null}
-    </>
-  );
-}
-
 function MasteryCard({ entry }: { entry: KbEntryDetail }) {
   const queryClient = useQueryClient();
   const [value, setValue] = useState<number | null>(null);
@@ -264,7 +271,7 @@ function MasteryCard({ entry }: { entry: KbEntryDetail }) {
     onSuccess: async (updated) => {
       queryClient.setQueryData(["kb", "entry", entry.id], updated);
       setValue(null);
-      await queryClient.invalidateQueries({ queryKey: ["kb", "tree"] });
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ["kb", "tree"] }), queryClient.invalidateQueries({ queryKey: ["kb", "graph"] })]);
     }
   });
 
@@ -309,38 +316,85 @@ function MasteryCard({ entry }: { entry: KbEntryDetail }) {
   );
 }
 
-function RelationsCard({ entry }: { entry: KbEntryDetail }) {
-  const groups = RELATION_GROUPS.map((group) => ({ label: group.label, list: entry.relations.filter(group.match) })).filter((group) => group.list.length);
+function EntryGraphCard({ entryId }: { entryId: string }) {
+  const navigate = useNavigate();
+  const graph = useQuery({ queryKey: ["kb", "graph"], queryFn: () => api.getKbGraph() });
+  const ego = useMemo(() => (graph.data ? egoGraph(graph.data, entryId) : null), [graph.data, entryId]);
+  const go = (id: string) => {
+    if (id !== entryId) void navigate({ to: "/wiki/$entryId", params: { entryId: id } });
+  };
   return (
     <div className="card">
-      <div className="card-title">
-        关联词条<span className="more muted">{entry.relations.length} 个</span>
-      </div>
-      {groups.length ? (
-        <table className="table wiki-rel">
-          <tbody>
-            {groups.map((group) => (
-              <tr key={group.label}>
-                <td className="muted">{group.label}</td>
-                <td>
-                  <div className="chips">
-                    {group.list.map((relation) => (
-                      <ConceptChip key={relation.id} id={relation.id} name={relation.name} mastery={relation.mastery} />
-                    ))}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="card-title">关联图谱{ego ? <span className="more muted">{ego.nodes.length - 1} 个词条</span> : null}</div>
+      {ego?.edges.length ? (
+        <div className="kb-entry-graph-canvas">
+          <KbGraph graph={ego} checked={NO_IDS} relation="all" compact centerId={entryId} onToggle={go} onOpen={go} />
+        </div>
       ) : (
-        <div className="small faint">暂无关联</div>
+        <div className="small faint">{graph.data ? "暂无关联词条" : "加载中…"}</div>
       )}
     </div>
   );
 }
 
+function KbToc({ activeId }: { activeId: string }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const { collapsed, toggleCollapsed } = useKbUiStore();
+  const tree = useQuery({ queryKey: ["kb", "tree", "", ""], queryFn: () => api.getKbTree(), enabled: open });
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="kb-toc" ref={ref}>
+      <button type="button" className="btn kb-toc-btn" title="目录" aria-label="目录" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+          <path d="M4 6h16M4 12h16M4 18h10" />
+        </svg>
+      </button>
+      {open ? (
+        <div className="card kb-toc-pop">
+          {tree.data ? (
+            <KbCategoryTree
+              categories={tree.data.categories}
+              collapsed={collapsed}
+              onToggleCollapsed={toggleCollapsed}
+              onCheckMany={noop}
+              activeId={activeId}
+              checked={NO_CHECKED}
+              onOpen={(id) => {
+                setOpen(false);
+                void navigate({ to: "/wiki/$entryId", params: { entryId: id } });
+              }}
+              onToggle={noop}
+              onDelete={noop}
+            />
+          ) : (
+            <div className="empty">加载中…</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SourcesCard({ entry }: { entry: KbEntryDetail }) {
+  const [comparing, setComparing] = useState<KbEntrySource | null>(null);
   return (
     <div className="card">
       <div className="card-title">
@@ -352,14 +406,19 @@ function SourcesCard({ entry }: { entry: KbEntryDetail }) {
           const icon = siteShort(source.site);
           return (
             <div key={source.itemId} className="kb-source">
-              <Link to="/item/$itemId" params={{ itemId: source.itemId }} className="row kb-source-head">
-                <span className="src-icon" style={{ background: icon.color, width: 22, height: 22, fontSize: 10 }}>
-                  {icon.short}
-                </span>
-                <span className="grow kb-source-title" title={source.title}>
-                  {source.title}
-                </span>
-              </Link>
+              <div className="row kb-source-row">
+                <Link to="/item/$itemId" params={{ itemId: source.itemId }} className="row kb-source-head">
+                  <span className="src-icon" style={{ background: icon.color, width: 22, height: 22, fontSize: 10 }}>
+                    {icon.short}
+                  </span>
+                  <span className="grow kb-source-title" title={source.title}>
+                    {source.title}
+                  </span>
+                </Link>
+                <button type="button" className="btn sm ghost" title="对比整理内容与原文" onClick={() => setComparing(source)}>
+                  对比
+                </button>
+              </div>
               <div className="small faint">
                 {SOURCE_KIND_LABEL[source.sourceKind]}
                 {source.addedAt ? ` · ${formatCapturedAt(source.addedAt)}` : ""}
@@ -378,6 +437,7 @@ function SourcesCard({ entry }: { entry: KbEntryDetail }) {
           );
         })}
       </div>
+      {comparing ? <KbCompareDialog entry={entry} source={comparing} open onOpenChange={(open) => !open && setComparing(null)} /> : null}
     </div>
   );
 }

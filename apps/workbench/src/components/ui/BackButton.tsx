@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
 type Props = {
   to: string;
   label?: string;
+  children?: ReactNode;
 };
 
 function splitHref(href: string): { pathname: string; search?: Record<string, string> } {
@@ -11,7 +13,7 @@ function splitHref(href: string): { pathname: string; search?: Record<string, st
   return { pathname: pathname || "/home", search: Object.fromEntries(new URLSearchParams(query).entries()) };
 }
 
-export function BackButton({ to, label = "返回" }: Props) {
+export function BackButton({ to, label = "返回", children }: Props) {
   const link = splitHref(to);
   return (
     <div className="row back-row">
@@ -31,6 +33,12 @@ export function BackButton({ to, label = "返回" }: Props) {
         </svg>
         {label}
       </Link>
+      {children ? (
+        <>
+          <div className="grow" />
+          {children}
+        </>
+      ) : null}
     </div>
   );
 }

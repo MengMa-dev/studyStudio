@@ -263,7 +263,7 @@ test("⑤ duplicate adds a source without touching the body", async (t) => {
   assert.ok(source.evidence.includes("cross-encoder"));
 });
 
-test("adopt mode: rejected item selected manually skips judge and τ, pattern kind maps to method", async (t) => {
+test("adopt mode: rejected item selected manually skips judge and τ, legacy pattern kind maps to 设计模式", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   insertEntry(env.db, { id: "kb_agent_loop", name: "Agent Loop", aliases: ["智能体循环"], kind: "method", body: "## 定义\n循环调用工具。" });
@@ -287,7 +287,7 @@ test("adopt mode: rejected item selected manually skips judge and τ, pattern ki
   assert.equal(stored.override, "adopt");
   assert.equal(stored.route, "llm");
   const created = env.db.prepare("SELECT kind FROM kb_entries WHERE name = 'ReAct'").get() as { kind: string };
-  assert.equal(created.kind, "method");
+  assert.equal(created.kind, "设计模式");
   assert.equal(run.stats.decisions.new, 1);
 });
 

@@ -5,11 +5,17 @@ import {
   kbDeleteResponseSchema,
   kbEntryDetailSchema,
   kbEntryPatchSchema,
+  kbGraphResponseSchema,
+  kbKindRenameResponseSchema,
+  kbKindRenameSchema,
+  kbKindsResponseSchema,
   kbTreeQuerySchema,
   kbTreeResponseSchema,
+  SEED_KINDS,
   type KbDeleteRequestInput,
   type KbEntryKind,
   type KbEntryPatch,
+  type KbKindRename,
   type KbEvidence,
   type KbFlatEntry,
   type KbRelation,
@@ -90,7 +96,7 @@ function createEntries(): MockEntry[] {
       id: "kb-rerank",
       name: "重排",
       aliases: ["Rerank", "精排"],
-      kind: "concept",
+      kind: "概念",
       categoryId: "cat-retrieval",
       summary: "对召回阶段返回的候选做二次精排，用更重的模型换取更高的排序精度。",
       bodyMarkdown:
@@ -111,7 +117,7 @@ function createEntries(): MockEntry[] {
       id: "kb-cross",
       name: "交叉编码器",
       aliases: ["Cross-Encoder"],
-      kind: "model",
+      kind: "模型",
       categoryId: "cat-retrieval",
       parentId: "kb-rerank",
       summary: "把查询和文档拼接后送入同一个 Transformer，直接输出相关性分数。",
@@ -140,7 +146,7 @@ function createEntries(): MockEntry[] {
       id: "kb-bge",
       name: "bge-reranker",
       aliases: ["BGE Reranker"],
-      kind: "model",
+      kind: "模型",
       categoryId: "cat-retrieval",
       parentId: "kb-cross",
       summary: "智源开源的交叉编码器重排模型，中英文效果都不错。",
@@ -153,7 +159,7 @@ function createEntries(): MockEntry[] {
       id: "kb-bi",
       name: "双塔模型",
       aliases: ["Bi-Encoder", "双编码器"],
-      kind: "model",
+      kind: "模型",
       categoryId: "cat-retrieval",
       summary: "查询与文档分别编码成向量，文档向量可离线预计算。",
       bodyMarkdown:
@@ -165,7 +171,7 @@ function createEntries(): MockEntry[] {
       id: "kb-bm25",
       name: "BM25",
       aliases: ["Okapi BM25"],
-      kind: "algorithm",
+      kind: "算法",
       categoryId: "cat-retrieval",
       summary: "经典的词频-逆文档频率检索打分函数。",
       bodyMarkdown:
@@ -183,7 +189,7 @@ function createEntries(): MockEntry[] {
       id: "kb-hnsw",
       name: "HNSW",
       aliases: ["分层可导航小世界图"],
-      kind: "algorithm",
+      kind: "算法",
       categoryId: "cat-retrieval",
       summary: "分层可导航小世界图索引，近似最近邻检索的主流方案。",
       bodyMarkdown:
@@ -196,7 +202,7 @@ function createEntries(): MockEntry[] {
       id: "kb-hybrid",
       name: "混合检索",
       aliases: ["Hybrid Search"],
-      kind: "method",
+      kind: "方法",
       categoryId: "cat-retrieval",
       summary: "同时使用关键词检索与向量检索，再把两路结果融合。",
       bodyMarkdown:
@@ -215,7 +221,7 @@ function createEntries(): MockEntry[] {
       id: "kb-rrf",
       name: "RRF 融合",
       aliases: ["Reciprocal Rank Fusion"],
-      kind: "algorithm",
+      kind: "算法",
       categoryId: "cat-retrieval",
       parentId: "kb-hybrid",
       summary: "按各路结果中的排名倒数求和来融合多路检索结果。",
@@ -227,7 +233,7 @@ function createEntries(): MockEntry[] {
     entry({
       id: "kb-langgraph",
       name: "LangGraph",
-      kind: "concept",
+      kind: "概念",
       categoryId: "cat-agent",
       summary: "用有向图描述 Agent 流程的编排框架，内置状态持久化。",
       bodyMarkdown: "## 定义\n\nLangGraph 用节点 + 边描述 Agent 的执行流程，状态在节点之间传递。\n\n## 我的笔记\n\n适合需要循环、分支和人工介入的复杂流程。",
@@ -239,7 +245,7 @@ function createEntries(): MockEntry[] {
       id: "kb-checkpoint",
       name: "Checkpoint",
       aliases: ["检查点"],
-      kind: "concept",
+      kind: "概念",
       categoryId: "cat-agent",
       parentId: "kb-langgraph",
       summary: "每一步执行后保存图状态，用于恢复、回放和人工介入。",
@@ -251,7 +257,7 @@ function createEntries(): MockEntry[] {
     entry({
       id: "kb-interrupt",
       name: "Interrupt",
-      kind: "concept",
+      kind: "概念",
       categoryId: "cat-agent",
       parentId: "kb-checkpoint",
       summary: "在节点内暂停执行，等待外部输入后从检查点继续。",
@@ -263,7 +269,7 @@ function createEntries(): MockEntry[] {
       id: "kb-hitl",
       name: "Human-in-the-loop",
       aliases: ["HITL", "人机协作"],
-      kind: "concept",
+      kind: "概念",
       categoryId: "cat-agent",
       summary: "Agent 执行中暂停等待人工确认或修改。",
       bodyMarkdown: "## 定义\n\n在关键步骤（如调用外部工具、写库）前暂停，由人确认、修改或拒绝。",
@@ -276,7 +282,7 @@ function createEntries(): MockEntry[] {
       id: "kb-react",
       name: "ReAct",
       aliases: ["Reason + Act"],
-      kind: "paper",
+      kind: "论文",
       categoryId: "cat-agent",
       summary: "交替进行推理与行动的提示范式，Agent 的基础模式之一。",
       bodyMarkdown: "## 核心思想\n\n模型交替输出 `Thought → Action → Observation`，直到给出最终答案。",
@@ -286,7 +292,7 @@ function createEntries(): MockEntry[] {
     entry({
       id: "kb-transformer",
       name: "Transformer",
-      kind: "model",
+      kind: "模型",
       categoryId: "cat-llm",
       summary: "完全基于注意力机制的序列建模架构。",
       bodyMarkdown: "## 结构\n\n- 编码器 / 解码器堆叠；\n- 每层包含多头自注意力与前馈网络；\n- 残差连接 + LayerNorm。",
@@ -303,7 +309,7 @@ function createEntries(): MockEntry[] {
       id: "kb-attn",
       name: "自注意力",
       aliases: ["Self-Attention", "Scaled Dot-Product Attention"],
-      kind: "algorithm",
+      kind: "算法",
       categoryId: "cat-llm",
       parentId: "kb-transformer",
       summary: "序列中每个位置对所有位置加权求和，权重由 Q、K 的相似度决定。",
@@ -321,7 +327,7 @@ function createEntries(): MockEntry[] {
     entry({
       id: "kb-aiayn",
       name: "Attention Is All You Need",
-      kind: "paper",
+      kind: "论文",
       categoryId: "cat-llm",
       summary: "2017 年提出 Transformer 的论文。",
       bodyMarkdown: "## 贡献\n\n- 提出 Transformer；\n- 用多头注意力替代 RNN，训练可并行。",
@@ -334,7 +340,7 @@ function createEntries(): MockEntry[] {
       id: "kb-prompt-cache",
       name: "Prompt 缓存",
       aliases: ["Prompt Caching"],
-      kind: "method",
+      kind: "方法",
       categoryId: null,
       summary: "复用相同前缀的 KV 缓存，降低长提示词的延迟与费用。",
       bodyMarkdown: "## 定义\n\n服务端缓存提示词前缀的 KV，相同前缀的后续请求直接复用。",
@@ -634,7 +640,7 @@ const NEW_ENTRY_FROM_ITEM: Record<string, () => MockEntry> = {
       id: "kb-rag-pipeline",
       name: "RAG 流水线",
       aliases: ["RAG Pipeline"],
-      kind: "method",
+      kind: "方法",
       categoryId: "cat-retrieval",
       summary: "文档切块 → 向量化 → 混合检索 → 重排 → 生成 的完整链路。",
       bodyMarkdown: "## 步骤\n\n1. 文档切块；\n2. 向量化并建索引；\n3. 混合检索召回；\n4. 重排；\n5. 拼接上下文交给大模型生成。",
@@ -701,6 +707,29 @@ export const mockKbApi = {
     return kbTreeResponseSchema.parse({ mode: "flat", categories: [], entries: matched, total: matched.length });
   },
 
+  async getKbGraph() {
+    reconcileTrash();
+    const alive = new Set(entries.map((candidate) => candidate.id));
+    return kbGraphResponseSchema.parse({
+      categories: CATEGORIES.filter((category) => entries.some((candidate) => candidate.categoryId === category.id)).map(({ id, name }) => ({ id, name })),
+      nodes: entries.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name,
+        kind: candidate.kind,
+        categoryId: candidate.categoryId,
+        mastery: candidate.mastery,
+        stale: candidate.stale,
+        orphan: liveSources(candidate).length === 0
+      })),
+      edges: [
+        ...entries.flatMap((candidate) =>
+          candidate.parentId && alive.has(candidate.parentId) ? [{ src: candidate.id, dst: candidate.parentId, type: "part_of" }] : []
+        ),
+        ...edges.filter((edge) => alive.has(edge.src) && alive.has(edge.dst)).map(({ src, dst, type }) => ({ src, dst, type }))
+      ]
+    });
+  },
+
   async getKbEntry(id: string) {
     reconcileTrash();
     return detailOf(id);
@@ -721,7 +750,28 @@ export const mockKbApi = {
       target.masterySource = body.mastery === null ? "auto" : "user";
     }
     if (body.categoryId !== undefined) target.categoryId = body.categoryId;
+    if (body.kind !== undefined) target.kind = body.kind;
     return detailOf(id);
+  },
+
+  async getKbKinds() {
+    reconcileTrash();
+    const seeds: readonly string[] = SEED_KINDS;
+    const counts = new Map<string, number>(seeds.map((name) => [name, 0]));
+    for (const candidate of entries) counts.set(candidate.kind, (counts.get(candidate.kind) ?? 0) + 1);
+    const rank = (name: string) => (seeds.includes(name) ? seeds.indexOf(name) : seeds.length);
+    const kinds = [...counts]
+      .map(([name, entryCount]) => ({ name, entryCount, seed: seeds.includes(name) }))
+      .sort((a, b) => rank(a.name) - rank(b.name) || b.entryCount - a.entryCount || a.name.localeCompare(b.name));
+    return kbKindsResponseSchema.parse({ kinds });
+  },
+
+  async renameKbKind(rename: KbKindRename) {
+    reconcileTrash();
+    const { from, to } = kbKindRenameSchema.parse(rename);
+    const targets = from === to ? [] : entries.filter((candidate) => candidate.kind === from);
+    for (const target of targets) target.kind = to;
+    return kbKindRenameResponseSchema.parse({ updated: targets.length });
   },
 
   async getKbDeleteImpact(ids: string[]) {

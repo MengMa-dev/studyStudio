@@ -322,7 +322,7 @@ recency_relevance = similarity × recency_weight
   },
   "related_entries": [
     {
-      "entry_id": "kb_hitl", "name": "Human-in-the-loop", "aliases": ["HITL"], "kind": "concept",
+      "entry_id": "kb_hitl", "name": "Human-in-the-loop", "aliases": ["HITL"], "kind": "概念",
       "summary": "在图执行中插入人工审批节点……",
       "similarity": 0.86, "recency_relevance": 0.70,
       "outline": ["## 定义", "## 实现方式", "## 常见场景"],
@@ -330,7 +330,8 @@ recency_relevance = similarity × recency_weight
     }
   ],
   "neighbor_entries": [{ "entry_id": "kb_checkpoint", "name": "Checkpoint", "aliases": [] }],
-  "categories": ["Agent 框架", "RAG"]
+  "categories": ["Agent 框架", "RAG"],
+  "kinds": ["概念", "方法", "算法", "模型", "论文", "工具", "库与框架", "设计模式", "最佳实践", "其他"]
 }
 ```
 
@@ -340,6 +341,7 @@ recency_relevance = similarity × recency_weight
 - `related_entries`：来自 ④，最多 5 个；相似度最高的 2 个附 `body_markdown`（补丁需要看到原文），其余只给摘要与大纲。
 - `neighbor_entries`：`related_entries` 的一跳关联词条（名称与别名），扩大对齐候选，不附正文。
 - `categories`：已有分类名，供新词条选择分类。
+- `kinds`：类型词表（种子类型 + 已用类型）。新词条 `kind` 优先从中选择，都不合适时给新类型名（2–6 字中文名词，表示性质而非主题）；程序端 `resolveKind` 归一化去重，英文旧代码映射为中文，类型总数达 20 或名称超 8 字时落为「其他」（见 14 A3/A4）。
 - `source_kind`：`official_doc` / `repo` / `community` / `blog` / `ai_answer` / `other`，由 `items.type` + 域名规则推导。
 - 预算：单次输入约 16k token（正文 ≤ 10k，词条参照 ≤ 5k）；超出走「长文」路径。
 
@@ -369,7 +371,7 @@ recency_relevance = similarity × recency_weight
       }
     },
     {
-      "name": "interrupt()", "aliases": ["interrupt"], "kind": "method", "match": "new",
+      "name": "interrupt()", "aliases": ["interrupt"], "kind": "方法", "match": "new",
       "category": "Agent 框架",
       "summary": "……", "body_markdown": "……",
       "completeness": { "covered": ["用法"], "missing": ["恢复语义"] },

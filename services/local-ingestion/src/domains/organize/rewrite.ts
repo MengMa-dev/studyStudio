@@ -1,7 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { PROMPTS } from "../../ai/prompts/index.js";
-import { ENTRY_KINDS, SOURCE_KINDS, type EntryRewriteInput } from "../../ai/prompts/schemas.draft.js";
+import { SOURCE_KINDS, type EntryRewriteInput } from "../../ai/prompts/schemas.draft.js";
 import { withTransaction } from "../../db/database.js";
+import { normalizeKind } from "../kb/queries.js";
 import { callLlm, type LlmContext } from "./llm.js";
 import { applyPatchOps } from "./patch.js";
 import { categoryName, entryNotes, loadEntry, parseJson, type EntryRecord } from "./store.js";
@@ -74,17 +75,13 @@ function relatedNames(db: DatabaseSync, entryId: string): string[] {
   ).map((row) => row.name);
 }
 
-function promptKind(kind: string | null): EntryRewriteInput["entry"]["kind"] {
-  return kind && (ENTRY_KINDS as readonly string[]).includes(kind) ? (kind as EntryRewriteInput["entry"]["kind"]) : "other";
-}
-
 export function buildRewriteInput(db: DatabaseSync, entry: EntryRecord, trigger: EntryRewriteInput["trigger"], requirement: string | null): EntryRewriteInput {
   return {
     entry: {
       entry_id: entry.id,
       name: entry.name,
       aliases: entry.aliases,
-      kind: promptKind(entry.kind),
+      kind: normalizeKind(entry.kind),
       category: categoryName(db, entry.categoryId) ?? "",
       summary: entry.summary ?? "",
       body_markdown: entry.body,
