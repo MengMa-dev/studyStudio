@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { OrganizeDecision, OrganizeRunItemStatus, OrganizeRunStats, OrganizeStage } from "@study-studio/shared";
 import type { LearningJudgeOutput } from "../../ai/prompts/schemas.draft.js";
+import { commitUnit } from "./commit.js";
 import type { EngagementLevel } from "./constants.js";
 import { loadLearnerProfile, loadTimeline, toOrganizeProfile, type JudgeProfile } from "./context.js";
 import { applySegmentSuggestion, buildEpisodes } from "./episode-builder.js";
@@ -180,8 +181,12 @@ function progress(state: RunState, stage: OrganizeStage, item: OrganizeItem | nu
 }
 
 function finishItems(state: RunState, items: OrganizeItem[], status: JobStatus, decision: OrganizeDecision | null, error: string | null = null): void {
+  for (const item of items) setJob(state.deps.db, state.runId, "item", item.id, status, error);
+  countItems(state, items, status, decision);
+}
+
+function countItems(state: RunState, items: OrganizeItem[], status: JobStatus, decision: OrganizeDecision | null): void {
   for (const item of items) {
-    setJob(state.deps.db, state.runId, "item", item.id, status, error);
     state.done += 1;
     const eventStatus: OrganizeRunItemStatus = status === "deferred" ? "pending" : (status as OrganizeRunItemStatus);
     state.hooks.onItemDone?.({ itemId: item.id, status: eventStatus, decision });
@@ -460,7 +465,9 @@ async function afterIntegration(
   indexCtx: IndexContext,
   fingerprints: FingerprintCache,
   unit: WorkUnit,
-  result: IntegrationResult
+  result: IntegrationResult,
+  status: JobStatus,
+  decision: OrganizeDecision
 ): Promise<void> {
   for (const change of result.entryChanges) {
     fingerprints.add(change.entryId, unit.items[0]!);
@@ -469,12 +476,9 @@ async function afterIntegration(
   }
   state.stats.kb.relationsCreated += result.edgesCreated;
   progress(state, "embedding", unit.items[0] ?? null);
-  for (const entryId of result.touchedEntryIds) {
-    const entry = loadEntry(state.deps.db, entryId);
-    if (!entry) continue;
-    await indexEntrySummary(indexCtx, entry);
-    state.bodyQueue.add(entryId);
-  }
+  const indexed = await commitUnit({ db: state.deps.db, indexCtx, runId: state.runId }, unit.items, result, status);
+  for (const entryId of indexed) state.bodyQueue.add(entryId);
+  countItems(state, unit.items, status, decision);
 }
 
 async function runUnit(
@@ -535,9 +539,8 @@ async function runUnit(
       prefilter.target_entry_ids.map((entryId) => ({ entryId, evidence: [{ quote }] })),
       baseRecord({ ...common, decision: "duplicate", route: prefilter.route, output: { prefilter } })
     );
-    await afterIntegration(state, shared.indexCtx, shared.fingerprints, unit, result);
+    await afterIntegration(state, shared.indexCtx, shared.fingerprints, unit, result, "ingested", "duplicate");
     state.stats.decisions.prefiltered += 1;
-    finishItems(state, unit.items, "ingested", "duplicate");
     return;
   }
 
@@ -580,9 +583,8 @@ async function runUnit(
       ? output.evidence_by_entry.map((entry) => ({ entryId: entry.entry_id, evidence: entry.evidence }))
       : output.target_entry_ids.map((entryId) => ({ entryId, evidence: [] }));
     const result = recordDuplicate(integrationContext(state, usedNoteIds), unit.items, evidence, baseRecord({ ...recordFields, decision: "duplicate" }));
-    await afterIntegration(state, shared.indexCtx, shared.fingerprints, unit, result);
+    await afterIntegration(state, shared.indexCtx, shared.fingerprints, unit, result, "ingested", "duplicate");
     state.stats.decisions.duplicate += 1;
-    finishItems(state, unit.items, "ingested", "duplicate");
     return;
   }
   const newNames = output.concepts.filter((concept) => concept.match === "new").map((concept) => concept.name);
@@ -593,14 +595,13 @@ async function runUnit(
     output,
     baseRecord({ ...recordFields, decision: output.decision, summary: output.item_summary, points: output.item_points })
   );
-  await afterIntegration(state, shared.indexCtx, shared.fingerprints, unit, result);
   if (result.status === "rejected") {
+    await afterIntegration(state, shared.indexCtx, shared.fingerprints, unit, result, "rejected", "reject");
     state.stats.decisions.reject += 1;
-    finishItems(state, unit.items, "rejected", "reject");
     return;
   }
+  await afterIntegration(state, shared.indexCtx, shared.fingerprints, unit, result, "ingested", output.decision);
   state.stats.decisions[output.decision] += 1;
-  finishItems(state, unit.items, "ingested", output.decision);
 }
 
 // ⑦ ---------------------------------------------------------------------------------------------
