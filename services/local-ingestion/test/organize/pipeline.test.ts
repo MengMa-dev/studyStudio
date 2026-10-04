@@ -18,6 +18,8 @@ import {
   result,
   runPipeline,
   setLearnerProfile,
+  stepCalls,
+  steps,
   type TestEnv
 } from "./helpers";
 
@@ -92,8 +94,8 @@ test("③ learning episode → ⑤ supplement + conversation thread → ⑥ patc
   seedLangGraphItems(env);
   const { gateway, prompts } = createReplayGateway([
     replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" })),
-    replay.process("item_B", output("knowledge_processing", "conversation-thread")),
-    replay.process("item_C", output("knowledge_processing", "supplement"))
+    ...steps("item_B", output("knowledge_processing", "conversation-thread")),
+    ...steps("item_C", output("knowledge_processing", "supplement"))
   ]);
 
   const { runId, result: run } = await runPipeline(env, gateway);
@@ -157,7 +159,7 @@ test("③ non-learning episode rejects items; a noted item is still forced into 
   insertNote(env.db, { id: "note_vite", scope: "item", targetId: "item_vite_port", text: "以后端口冲突就这么处理", createdAt: T(6) });
   const { gateway, prompts } = createReplayGateway([
     replay.judge(output("learning_judge", "non-learning")),
-    replay.process("item_vite_port", output("knowledge_processing", "reject-transient"))
+    ...steps("item_vite_port", output("knowledge_processing", "reject-transient"))
   ]);
 
   const { result: run } = await runPipeline(env, gateway);
@@ -169,6 +171,7 @@ test("③ non-learning episode rejects items; a noted item is still forced into 
   assert.equal(forced.item.user_note, "以后端口冲突就这么处理");
   assert.equal(forced.item.engagement, "strong");
   assert.equal(result(env.db, "item_vite_port")!.reject_reason, "transient");
+  assert.equal(stepCalls(prompts, "extract").length, 0, "S1 reject stops before extraction");
   assert.equal(run.stats.decisions.notLearning, 1);
   assert.equal(run.stats.decisions.reject, 1);
   const note = env.db.prepare("SELECT used_at FROM notes WHERE id = 'note_vite'").get() as { used_at: string | null };
@@ -187,7 +190,7 @@ test("③ uncertain band raises τ: weak engagement + 0.78 is rejected by the co
   });
   const { gateway, prompts } = createReplayGateway([
     replay.judge(learningJudge(["item_mcp_intro"], { item_mcp_intro: "weak" }, { confidence: 0.5 })),
-    replay.process("item_mcp_intro", output("knowledge_processing", "new"))
+    ...steps("item_mcp_intro", output("knowledge_processing", "new"))
   ]);
 
   await runPipeline(env, gateway);
@@ -197,10 +200,11 @@ test("③ uncertain band raises τ: weak engagement + 0.78 is rejected by the co
   const stored = result(env.db, "item_mcp_intro")!;
   assert.equal(stored.decision, "reject");
   assert.equal(stored.reject_reason, "low_information");
-  const detail = JSON.parse(String(stored.output)) as { raw: { decision: string }; fallback: { overridden: boolean; tau: number } };
-  assert.equal(detail.raw.decision, "new", "raw model output is kept for calibration");
+  const detail = JSON.parse(String(stored.output)) as { raw: { triage: { decision: string } }; fallback: { overridden: boolean; tau: number } };
+  assert.equal(detail.raw.triage.decision, "proceed", "raw model output is kept for calibration");
   assert.equal(detail.fallback.overridden, true);
   assert.equal(detail.fallback.tau, 0.8);
+  assert.equal(stepCalls(prompts, "extract").length, 0, "τ fallback stops before extraction");
   assert.equal((env.db.prepare("SELECT COUNT(*) AS n FROM kb_entries").get() as { n: number }).n, 0);
 });
 
@@ -217,7 +221,7 @@ test("③ high confidence + medium engagement: ⑤ new creates an entry, summary
   });
   const { gateway } = createReplayGateway([
     replay.judge(learningJudge(["item_mcp_intro"], { item_mcp_intro: "medium" }, { related_exploration: ["Function Calling"] })),
-    replay.process("item_mcp_intro", output("knowledge_processing", "new"))
+    ...steps("item_mcp_intro", output("knowledge_processing", "new"))
   ]);
 
   const { result: run } = await runPipeline(env, gateway);
@@ -234,7 +238,7 @@ test("③ high confidence + medium engagement: ⑤ new creates an entry, summary
   assert.ok(env.searchIndex.vectorStore.size() > 0);
 });
 
-test("⑤ duplicate adds a source without touching the body", async (t) => {
+test("⑤ duplicate adds a source without touching the body; a highlighted item is re-checked point by point", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   const body = "## 定义\n先粗召回再用 cross-encoder 重排。";
@@ -247,13 +251,14 @@ test("⑤ duplicate adds a source without touching the body", async (t) => {
     markdown: recordedContent("duplicate")
   });
   insertSelection(env.db, "item_rerank_blog", "再用 cross-encoder 重排模型对「问题-片段」逐对打分", T(-1));
-  const { gateway } = createReplayGateway([
+  const { gateway, prompts } = createReplayGateway([
     replay.judge(learningJudge(["item_rerank_blog"], { item_rerank_blog: "weak" }, { related_exploration: ["Rerank"] })),
-    replay.process("item_rerank_blog", output("knowledge_processing", "duplicate"))
+    ...steps("item_rerank_blog", output("knowledge_processing", "duplicate"))
   ]);
 
   await runPipeline(env, gateway);
 
+  assert.equal(stepCalls(prompts, "compose", "item_rerank_blog").length, 1, "S1 duplicate on a highlighted item still runs compose");
   assert.equal(result(env.db, "item_rerank_blog")!.decision, "duplicate");
   assert.equal(itemStatus(env.db, "item_rerank_blog").organize_status, "ingested");
   assert.equal(entry(env.db, "kb_rerank")!.body_markdown, body);
@@ -276,7 +281,7 @@ test("adopt mode: rejected item selected manually skips judge and τ, legacy pat
     status: "rejected"
   });
   const { gateway, prompts } = createReplayGateway([
-    replay.process("item_react_post", output("knowledge_processing", "adopt", { value_score: 0.1 }), (input) => input.mode === "adopt")
+    ...steps("item_react_post", output("knowledge_processing", "adopt", { value_score: 0.1 }))
   ]);
 
   const { result: run } = await runPipeline(env, gateway, { scope: "inbox_selected", itemIds: ["item_react_post"] });
@@ -291,37 +296,77 @@ test("adopt mode: rejected item selected manually skips judge and τ, legacy pat
   assert.equal(run.stats.decisions.new, 1);
 });
 
-test("long text: judge-only call on an excerpt, then one focused extraction", async (t) => {
+test("long text: S1 sees an excerpt + outline, every section reaches S2 across chunks", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   seedLangGraphKb(env);
-  const filler = (title: string) => `## ${title}\n${"LangGraph persistence keeps graph state between steps so runs can resume. ".repeat(250)}`;
+  const filler = (title: string) => `## ${title}\n${"LangGraph persistence keeps graph state between steps so runs can resume. ".repeat(450)}`;
   const content = [recordedContent("supplement"), filler("Appendix A"), filler("Appendix B"), filler("Appendix C")].join("\n\n");
   insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: content });
+  const { gateway, prompts } = createReplayGateway([replay.judge(learningJudge(["item_C"], { item_C: "strong" })), ...steps("item_C", output("knowledge_processing", "supplement"))]);
+
+  await runPipeline(env, gateway);
+
+  const [triage] = stepCalls(prompts, "triage", "item_C") as Array<{ item: { excerpt: string; outline: string[] } }>;
+  assert.ok(triage!.item.excerpt.length < content.length / 2, "triage sees an excerpt");
+  assert.ok(triage!.item.outline.includes("## Appendix C"), "triage sees the full outline");
+  const extracts = stepCalls(prompts, "extract", "item_C") as Array<{ chunk: { index: number; total: number; text: string } }>;
+  assert.ok(extracts.length >= 2, `expected several chunks, got ${extracts.length}`);
+  assert.equal(extracts[0]!.chunk.total, extracts.length);
+  for (const title of ["Appendix A", "Appendix B", "Appendix C"]) assert.ok(extracts.some((call) => call.chunk.text.includes(`## ${title}`)), `${title} reaches S2`);
+  const stored = result(env.db, "item_C")!;
+  assert.equal(stored.route, "llm");
+  assert.equal(stored.decision, "supplement");
+});
+
+test("S5: compose missing a core point is retried with feedback and the better result is kept", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  seedLangGraphKb(env);
+  insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: recordedContent("supplement") });
+  const [triage, extract, , compose] = steps("item_C", output("knowledge_processing", "supplement"));
+  const full = compose!.output as { concepts: Array<{ point_ids: string[] }> };
+  const partial = structuredClone(full);
+  partial.concepts[0]!.point_ids = partial.concepts[0]!.point_ids.slice(0, 1);
   const { gateway, prompts } = createReplayGateway([
     replay.judge(learningJudge(["item_C"], { item_C: "strong" })),
-    replay.longJudge("item_C", {
-      item_id: "item_C",
-      decision: "supplement",
-      value_score: 0.8,
-      reason: "interrupt 细节",
-      reject_reason: null,
-      target_entry_ids: [],
-      focus_sections: ["Human-in-the-loop"]
-    }),
-    replay.process("item_C", output("knowledge_processing", "supplement"))
+    triage!,
+    extract!,
+    replay.extract("item_C", { points: [] }),
+    replay.compose("item_C", full, (input) => Boolean(input.feedback?.length)),
+    replay.compose("item_C", partial)
   ]);
 
   await runPipeline(env, gateway);
 
-  const calls = kpCalls(prompts, "item_C").map((call) => call.input as { judge_only?: boolean; item: { content: string } });
+  const calls = stepCalls(prompts, "compose", "item_C");
   assert.equal(calls.length, 2);
-  assert.equal(calls[0]!.judge_only, true);
-  assert.ok(calls[0]!.item.content.length < content.length / 2, "judge sees an excerpt");
-  assert.ok(!calls[1]!.item.content.includes("Appendix C"), "extraction sees the focus sections only");
-  const stored = result(env.db, "item_C")!;
-  assert.equal(stored.route, "llm_long");
-  assert.equal(stored.decision, "supplement");
+  assert.equal(calls[0]!.feedback, null);
+  assert.match(calls[1]!.feedback![0]!, /p2/);
+  const detail = JSON.parse(String(result(env.db, "item_C")!.output)) as { raw: { compose_retries: number; missing_after_retry: string[] } };
+  assert.equal(detail.raw.compose_retries, 1);
+  assert.deepEqual(detail.raw.missing_after_retry, []);
+  const source = env.db.prepare("SELECT evidence FROM kb_entry_sources WHERE entry_id = 'kb_hitl' AND item_id = 'item_C'").get() as { evidence: string };
+  const evidence = JSON.parse(source.evidence) as Array<{ point?: string; importance?: string }>;
+  assert.equal(evidence.length, full.concepts[0]!.point_ids.length);
+  assert.ok(evidence.every((item) => item.point && item.importance === "core"), "points are persisted with the evidence");
+});
+
+test("S1 duplicate without user marks stops before extraction", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  insertEntry(env.db, { id: "kb_rerank", name: "RAG 重排", aliases: ["Rerank"], body: "## 定义\n先粗召回再用 cross-encoder 重排。" });
+  insertItem(env.db, { id: "item_rerank_blog", title: "RAG 优化：为什么要加一层 Rerank", capturedAt: T(0), markdown: recordedContent("supplement") });
+  const { gateway, prompts } = createReplayGateway([
+    replay.judge(learningJudge(["item_rerank_blog"], { item_rerank_blog: "medium" }, { related_exploration: ["Rerank"] })),
+    ...steps("item_rerank_blog", output("knowledge_processing", "duplicate"))
+  ]);
+
+  await runPipeline(env, gateway);
+
+  assert.equal(result(env.db, "item_rerank_blog")!.decision, "duplicate");
+  assert.equal(stepCalls(prompts, "extract").length, 0);
+  assert.equal(stepCalls(prompts, "compose").length, 0);
 });
 
 test("user_edited entry: supplement goes to 整理建议 and the summary is kept", async (t) => {
@@ -332,7 +377,7 @@ test("user_edited entry: supplement goes to 整理建议 and the summary is kept
   insertSelection(env.db, "item_C", "The interrupt() function pauses graph execution at a specific node", T(-1));
   const { gateway, prompts } = createReplayGateway([
     replay.judge(learningJudge(["item_C"], { item_C: "strong" })),
-    replay.process("item_C", output("knowledge_processing", "supplement"))
+    ...steps("item_C", output("knowledge_processing", "supplement"))
   ]);
 
   await runPipeline(env, gateway);
@@ -403,8 +448,8 @@ test("a failing item does not block the batch; retry processes only the failed i
   const judge = replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" }));
   const broken = createReplayGateway([
     judge,
-    replay.process("item_B", { decision: "nonsense" }),
-    replay.process("item_C", output("knowledge_processing", "supplement"))
+    replay.triage("item_B", { decision: "nonsense" }),
+    ...steps("item_C", output("knowledge_processing", "supplement"))
   ]);
 
   const first = await runPipeline(env, broken.gateway);
@@ -418,7 +463,7 @@ test("a failing item does not block the batch; retry processes only the failed i
   assert.equal(failedJob.status, "failed");
   assert.ok(failedJob.error);
 
-  const fixed = createReplayGateway([judge, replay.process("item_B", output("knowledge_processing", "conversation-thread"))]);
+  const fixed = createReplayGateway([judge, ...steps("item_B", output("knowledge_processing", "conversation-thread"))]);
   const retry = await runPipeline(env, fixed.gateway, { trigger: "retry", itemIds: ["item_B", "item_B2"] });
 
   assert.equal(itemStatus(env.db, "item_B").organize_status, "ingested");
@@ -436,8 +481,8 @@ test("daily token limit pauses the run and leaves unfinished items pending", asy
   const { gateway } = createReplayGateway(
     [
       replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" })),
-      replay.process("item_B", output("knowledge_processing", "conversation-thread")),
-      replay.process("item_C", output("knowledge_processing", "supplement"))
+      ...steps("item_B", output("knowledge_processing", "conversation-thread")),
+      ...steps("item_C", output("knowledge_processing", "supplement"))
     ],
     { limit: 1 }
   );
@@ -456,8 +501,8 @@ test("re-running the same batch skips every item by input_hash (no ③/⑤ calls
   seedLangGraphItems(env);
   const rules = [
     replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" })),
-    replay.process("item_B", output("knowledge_processing", "conversation-thread")),
-    replay.process("item_C", output("knowledge_processing", "supplement"))
+    ...steps("item_B", output("knowledge_processing", "conversation-thread")),
+    ...steps("item_C", output("knowledge_processing", "supplement"))
   ];
   await runPipeline(env, createReplayGateway(rules).gateway);
   const patchCount = entry(env.db, "kb_hitl")!.patch_count;

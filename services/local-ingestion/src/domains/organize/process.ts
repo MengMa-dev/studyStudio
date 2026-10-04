@@ -1,29 +1,43 @@
 import type { DatabaseSync } from "node:sqlite";
 import { sourceKindOf } from "@study-studio/shared";
-import { z } from "zod";
+import type { z } from "zod";
 import { PROMPTS } from "../../ai/prompts/index.js";
-import { REJECT_REASONS, type KnowledgeProcessingInput, type KnowledgeProcessingOutput } from "../../ai/prompts/schemas.draft.js";
-import type { ItemExposureRow } from "../../db/types.js";
+import type {
+  KnowledgeComposeInput,
+  KnowledgeComposeOutput,
+  KnowledgeExtractInput,
+  KnowledgeExtractOutput,
+  KnowledgeProcessingOutput,
+  KnowledgeTriageInput,
+  KnowledgeTriageOutput
+} from "../../ai/prompts/schemas.draft.js";
+import type { GenerativeAiTask } from "../../ai/types.js";
 import { estimateTokens } from "../../search/chunk.js";
-import type { EngagementLevel } from "./constants.js";
 import { normalizeKind } from "../kb/queries.js";
+import { annotateExposure, chunkUnit, type ContentChunk } from "./chunk.js";
+import { PREFILTER_PARAMS, type EngagementLevel } from "./constants.js";
+import { assembleResult, missingFeedback, missingPoints, validateCompose, type KnowledgePoint } from "./coverage.js";
+import { vectorRecall, type IndexContext } from "./kb-index.js";
 import { kindVocabulary } from "./kinds.js";
-import { callLlm, type LlmContext } from "./llm.js";
+import { callLlm, isUsageLimitError, tryEmbed, type LlmContext } from "./llm.js";
 import { normalizeHeading } from "./normalize.js";
 import { applyValueScoreFallback } from "./postprocess.js";
-import { categoryNames, outlineOf, type EntryRecord, type OrganizeItem } from "./store.js";
+import { headByTokens } from "./retrieve.js";
+import { ENTRY_OWNER } from "./runtime-types.js";
+import { categoryNames, findEntryByName, outlineOf, type EntryRecord, type OrganizeItem } from "./store.js";
 import type { ScoredRelatedEntry, ValueScoreFallbackResult } from "./types.js";
 
-/** ⑤ Knowledge Processing: input assembly, single call, long-text two-step path, τ fallback. */
+/** ⑤ Knowledge Processing (15): S1 triage → chunk → S2 extract → concept recall → S3+S4 compose → S5 coverage. */
 
-export const PROCESSING_PROMPT_VERSION = PROMPTS.knowledge_processing.version;
-export const LONG_JUDGE_PROMPT_VERSION = `${PROCESSING_PROMPT_VERSION}+long_judge@1`;
+export const PROCESSING_PROMPT_VERSION = `organize@3(${PROMPTS.knowledge_triage.version}+${PROMPTS.knowledge_extract.version}+${PROMPTS.knowledge_compose.version})`;
 
-/** Body budget per call (07: content ≤ 10k tokens); above this the long path is used. */
-export const CONTENT_TOKEN_BUDGET = 10_000;
 const EXCERPT_TOKEN_BUDGET = 3_000;
+const TRIAGE_ANSWER_HEAD_TOKENS = 400;
 const MAX_RELATED = 5;
-const RELATED_WITH_BODY = 2;
+const MAX_CANDIDATES = 10;
+const CONCEPT_RECALL_K = 3;
+const CANDIDATE_BODY_BUDGET = 12_000;
+const EXTRACT_CONCURRENCY = 3;
 const MAX_NEIGHBORS = 10;
 const MAX_IGNORED_NAMES = 100;
 
@@ -35,7 +49,7 @@ export type WorkEpisode = {
   uncertain: boolean;
 };
 
-/** One ⑤ call: a single item, or a conversation thread (turns ordered, the first is the anchor). */
+/** One ⑤ run: a single item, or a conversation thread (turns ordered, the first is the anchor). */
 export type WorkUnit = {
   key: string;
   items: OrganizeItem[];
@@ -48,6 +62,8 @@ export type WorkUnit = {
 export type ProcessingContext = {
   db: DatabaseSync;
   llm: LlmContext;
+  /** Entry vector index for per-concept recall; null disables it (name matching still applies). */
+  indexCtx: IndexContext | null;
   profile: { role: string; learning_focus: string[] };
   requirement: string | null;
   fuzzyNotes: string[];
@@ -63,29 +79,6 @@ function splitSections(markdown: string): Section[] {
     else sections[sections.length - 1]!.lines.push(line);
   }
   return sections.filter((section) => section.heading !== null || section.lines.join("").trim());
-}
-
-function exposureLabel(row: ItemExposureRow | undefined): string | null {
-  if (!row) return null;
-  const coverage = row.coverage ?? 0;
-  const seconds = row.exposed_seconds ?? 0;
-  if (coverage >= 0.5) return "高";
-  if (coverage > 0 || seconds > 0) return "低";
-  return "无";
-}
-
-/** Annotate headings with `[露出:高|低|无]` from `item_exposure` (no-op without exposure data). */
-export function annotateExposure(markdown: string, exposure: ItemExposureRow[]): string {
-  if (exposure.length === 0) return markdown;
-  const byHeading = new Map(exposure.filter((row) => row.heading).map((row) => [normalizeHeading(row.heading!), row]));
-  return markdown
-    .split("\n")
-    .map((line) => {
-      if (!/^#{1,6}\s+\S/.test(line)) return line;
-      const label = exposureLabel(byHeading.get(normalizeHeading(line)));
-      return label ? `${line.trimEnd()} [露出:${label}]` : line;
-    })
-    .join("\n");
 }
 
 function sectionText(section: Section): string {
@@ -110,13 +103,13 @@ function takeTokens(parts: string[], budget: number): string {
   return out.join("\n\n");
 }
 
-function exposedSeconds(section: Section, exposure: ItemExposureRow[]): number {
+function exposedSeconds(section: Section, item: OrganizeItem): number {
   if (!section.heading) return 0;
   const key = normalizeHeading(section.heading);
-  return exposure.find((row) => row.heading && normalizeHeading(row.heading) === key)?.exposed_seconds ?? 0;
+  return item.exposure.find((row) => row.heading && normalizeHeading(row.heading) === key)?.exposed_seconds ?? 0;
 }
 
-/** Long-path excerpt: sections around highlights → most exposed sections → document head (~3k tokens). */
+/** S1 excerpt: sections around highlights → most exposed sections → document head (~3k tokens). */
 export function buildExcerpt(item: OrganizeItem, budget = EXCERPT_TOKEN_BUDGET): string {
   const sections = splitSections(item.body);
   const picked: Section[] = [];
@@ -129,25 +122,13 @@ export function buildExcerpt(item: OrganizeItem, budget = EXCERPT_TOKEN_BUDGET):
     if (hit) add(hit);
   }
   [...sections]
-    .sort((a, b) => exposedSeconds(b, item.exposure) - exposedSeconds(a, item.exposure))
+    .sort((a, b) => exposedSeconds(b, item) - exposedSeconds(a, item))
     .forEach((section) => {
-      if (exposedSeconds(section, item.exposure) > 0) add(section);
+      if (exposedSeconds(section, item) > 0) add(section);
     });
   sections.forEach(add);
   return takeTokens(
     picked.map((section) => annotateExposure(sectionText(section), item.exposure)),
-    budget
-  );
-}
-
-/** Long-path focus content: `focus_sections` + exposed sections, within the body budget. */
-export function buildFocusContent(item: OrganizeItem, focusSections: string[], budget = CONTENT_TOKEN_BUDGET): string {
-  const sections = splitSections(item.body);
-  const focus = new Set(focusSections.map(normalizeHeading));
-  const chosen = sections.filter((section) => (section.heading && focus.has(normalizeHeading(section.heading))) || exposedSeconds(section, item.exposure) > 0);
-  const ordered = chosen.length ? chosen : sections;
-  return takeTokens(
-    ordered.map((section) => annotateExposure(sectionText(section), item.exposure)),
     budget
   );
 }
@@ -175,25 +156,69 @@ export function neighborEntries(db: DatabaseSync, relatedIds: string[]): Array<{
     });
 }
 
-export function buildProcessingInput(
-  ctx: ProcessingContext,
-  unit: WorkUnit,
-  related: ScoredRelatedEntry[],
-  entriesById: Map<string, EntryRecord>,
-  content?: string
-): KnowledgeProcessingInput {
+function round(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+type Prompt<I, O> = {
+  task: GenerativeAiTask;
+  version: string;
+  system: string;
+  buildUserPrompt: (input: I) => string;
+  outputSchema: (input: I) => z.ZodType<O> | z.ZodType;
+};
+
+function run<I, O>(llm: LlmContext, prompt: Prompt<I, O>, input: I): Promise<{ object: O; model: string }> {
+  return callLlm(llm, {
+    stage: "knowledge_processing",
+    task: prompt.task,
+    schema: prompt.outputSchema(input) as z.ZodType<O>,
+    system: prompt.system,
+    prompt: prompt.buildUserPrompt(input),
+    promptVersion: prompt.version,
+    input
+  });
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        out[index] = await fn(items[index]!);
+      }
+    })
+  );
+  return out;
+}
+
+/** One retry for transient failures; usage limits and aborts propagate immediately. */
+async function retryOnce<T>(llm: LlmContext, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (isUsageLimitError(error) || llm.signal?.aborted) throw error;
+    return fn();
+  }
+}
+
+const normalizeSpace = (text: string) => text.replace(/\s+/g, " ").trim();
+
+function hasUserMarks(unit: WorkUnit): boolean {
+  return unit.items.some((item) => item.highlights.length > 0 || item.itemNotes.length > 0);
+}
+
+export function buildTriageInput(ctx: ProcessingContext, unit: WorkUnit, related: ScoredRelatedEntry[], entriesById: Map<string, EntryRecord>): KnowledgeTriageInput {
   const anchor = unit.items[0]!;
-  const top = related.slice(0, MAX_RELATED).filter((entry) => entriesById.has(entry.entry_id));
   const conversation = anchor.type === "conversation";
+  const annotated = conversation ? "" : annotateExposure(anchor.body, anchor.exposure);
   return {
+    step: "triage",
     mode: unit.adopt ? "adopt" : "normal",
     episode: unit.episode
-      ? {
-          episode_id: unit.episode.episodeId,
-          topic: unit.episode.topic ?? "",
-          learning_goal: unit.episode.learningGoal ?? "",
-          uncertain: unit.episode.uncertain
-        }
+      ? { episode_id: unit.episode.episodeId, topic: unit.episode.topic ?? "", learning_goal: unit.episode.learningGoal ?? "", uncertain: unit.episode.uncertain }
       : null,
     learner_profile: ctx.profile,
     item: {
@@ -202,98 +227,196 @@ export function buildProcessingInput(
       source_kind: sourceKindOf(anchor.type, anchor.url),
       title: anchor.title,
       ...(anchor.url ? { url: anchor.url } : {}),
+      outline: conversation ? [] : outlineOf(anchor.body),
       ...(conversation
         ? {
             turns: unit.items.map((item, index) => ({
               turn_item_id: item.id,
               turn_index: index + 1,
               question: item.question ?? item.title,
-              answer: item.body
+              answer: headByTokens(item.body, TRIAGE_ANSWER_HEAD_TOKENS)
             }))
           }
-        : { content: content ?? annotateExposure(anchor.body, anchor.exposure) }),
+        : { excerpt: estimateTokens(annotated) <= EXCERPT_TOKEN_BUDGET ? annotated : buildExcerpt(anchor) }),
       user_highlights: unit.items.flatMap((item) => item.highlights),
       user_note: unit.items.flatMap((item) => item.itemNotes.map((note) => note.text)).join("\n") || null,
       fuzzy_notes: ctx.fuzzyNotes,
       requirement: ctx.requirement,
       engagement: unit.engagement
     },
-    related_entries: top.map((scored, index) => {
-      const entry = entriesById.get(scored.entry_id)!;
+    related_entries: related
+      .slice(0, MAX_RELATED)
+      .filter((scored) => entriesById.has(scored.entry_id))
+      .map((scored) => {
+        const entry = entriesById.get(scored.entry_id)!;
+        return {
+          entry_id: entry.id,
+          name: entry.name,
+          aliases: entry.aliases,
+          kind: normalizeKind(entry.kind),
+          summary: entry.summary ?? "",
+          similarity: round(scored.similarity),
+          recency_relevance: round(scored.recency_relevance),
+          outline: outlineOf(entry.body)
+        };
+      }),
+    ignored_names: ctx.ignoredNames.slice(0, MAX_IGNORED_NAMES)
+  };
+}
+
+function extractInput(unit: WorkUnit, chunk: ContentChunk, thesis: string, userFocus: string[]): KnowledgeExtractInput {
+  const anchor = unit.items[0]!;
+  return {
+    step: "extract",
+    item: { item_id: anchor.id, type: anchor.type, source_kind: sourceKindOf(anchor.type, anchor.url), title: anchor.title },
+    thesis,
+    user_focus: userFocus,
+    user_highlights: unit.items.flatMap((item) => item.highlights),
+    user_note: unit.items.flatMap((item) => item.itemNotes.map((note) => note.text)).join("\n") || null,
+    chunk
+  };
+}
+
+/** Numbers points p1…pn in chunk order; fills turn questions; highlighted quotes become core. */
+export function collectPoints(unit: WorkUnit, outputs: KnowledgeExtractOutput[]): KnowledgePoint[] {
+  const questions = new Map(unit.items.map((item) => [item.id, item.question ?? item.title]));
+  const highlights = unit.items.flatMap((item) => item.highlights).map(normalizeSpace).filter(Boolean);
+  const marked = (quote: string) => {
+    const text = normalizeSpace(quote);
+    return Boolean(text) && highlights.some((highlight) => highlight.includes(text) || text.includes(highlight));
+  };
+  return outputs
+    .flatMap((output) => output.points)
+    .map((point, index) => ({
+      id: `p${index + 1}`,
+      statement: point.statement,
+      quote: point.quote,
+      section: point.section,
+      concept: point.concept,
+      importance: marked(point.quote) ? "core" : point.importance,
+      turn_item_id: point.turn_item_id && questions.has(point.turn_item_id) ? point.turn_item_id : null,
+      question: point.turn_item_id ? (questions.get(point.turn_item_id) ?? null) : null
+    }));
+}
+
+/** ④ related entries ∪ per-concept name match / vector recall, best first. */
+async function candidateEntries(
+  ctx: ProcessingContext,
+  points: KnowledgePoint[],
+  related: ScoredRelatedEntry[],
+  entriesById: Map<string, EntryRecord>
+): Promise<EntryRecord[]> {
+  const scores = new Map<string, number>();
+  const bump = (id: string, similarity: number) => {
+    if (entriesById.has(id) && similarity > (scores.get(id) ?? -1)) scores.set(id, similarity);
+  };
+  for (const scored of related.slice(0, MAX_RELATED)) bump(scored.entry_id, scored.similarity);
+  const entries = [...entriesById.values()];
+  for (const concept of new Set(points.map((point) => point.concept))) {
+    const hit = findEntryByName(entries, concept);
+    if (hit) bump(hit.id, 1);
+    if (!ctx.indexCtx) continue;
+    const vector = await tryEmbed(ctx.llm, concept);
+    if (!vector) continue;
+    for (const [id, similarity] of vectorRecall(ctx.indexCtx, vector, [ENTRY_OWNER.name, ENTRY_OWNER.summary], CONCEPT_RECALL_K)) {
+      if (similarity >= PREFILTER_PARAMS.similarityDiscardThreshold) bump(id, similarity);
+    }
+  }
+  return [...scores]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_CANDIDATES)
+    .map(([id]) => entriesById.get(id)!);
+}
+
+// ponytail: candidate bodies are cut at CANDIDATE_BODY_BUDGET (later ones get summary + outline only); split compose per entry group if bodies are routinely long.
+function composeInput(
+  ctx: ProcessingContext,
+  unit: WorkUnit,
+  points: KnowledgePoint[],
+  candidates: EntryRecord[],
+  triage: { thesis: string; user_focus: string[] }
+): KnowledgeComposeInput {
+  const anchor = unit.items[0]!;
+  let bodyTokens = 0;
+  return {
+    step: "compose",
+    mode: unit.adopt ? "adopt" : "normal",
+    learner_profile: ctx.profile,
+    item: {
+      item_id: anchor.id,
+      type: anchor.type,
+      source_kind: sourceKindOf(anchor.type, anchor.url),
+      title: anchor.title,
+      thesis: triage.thesis,
+      user_focus: triage.user_focus,
+      requirement: ctx.requirement
+    },
+    points: points.map(({ id, statement, concept, importance, section }) => ({ id, statement, concept, importance, section })),
+    candidate_entries: candidates.map((entry) => {
+      bodyTokens += estimateTokens(entry.body);
       return {
         entry_id: entry.id,
         name: entry.name,
         aliases: entry.aliases,
         kind: normalizeKind(entry.kind),
         summary: entry.summary ?? "",
-        similarity: round(scored.similarity),
-        recency_relevance: round(scored.recency_relevance),
         outline: outlineOf(entry.body),
-        ...(index < RELATED_WITH_BODY ? { body_markdown: entry.body } : {})
+        ...(bodyTokens <= CANDIDATE_BODY_BUDGET ? { body_markdown: entry.body } : {})
       };
     }),
     neighbor_entries: neighborEntries(
       ctx.db,
-      top.map((entry) => entry.entry_id)
+      candidates.map((entry) => entry.id)
     ),
     ignored_names: ctx.ignoredNames.slice(0, MAX_IGNORED_NAMES),
     categories: categoryNames(ctx.db),
-    kinds: kindVocabulary(ctx.db)
+    kinds: kindVocabulary(ctx.db),
+    feedback: null
   };
 }
 
-function round(value: number): number {
-  return Math.round(value * 100) / 100;
+type Composed = { output: KnowledgeComposeOutput; model: string; retries: number; missing: string[] };
+
+/** S3+S4 with S5: one retry on structural problems (then fail), one retry on missing points (keep the better result). */
+async function composeWithCoverage(ctx: ProcessingContext, input: KnowledgeComposeInput, points: KnowledgePoint[]): Promise<Composed> {
+  const prompt = PROMPTS.knowledge_compose as Prompt<KnowledgeComposeInput, KnowledgeComposeOutput>;
+  const known = new Set([...input.candidate_entries.map((entry) => entry.entry_id), ...input.neighbor_entries.map((entry) => entry.entry_id)]);
+  let { object: output, model } = await run(ctx.llm, prompt, input);
+  let retries = 0;
+  const problems = validateCompose(output, points, known);
+  if (problems.length) {
+    retries += 1;
+    ({ object: output, model } = await run(ctx.llm, prompt, { ...input, feedback: problems }));
+    const remaining = validateCompose(output, points, known);
+    if (remaining.length) throw new Error(`compose invalid: ${remaining.join("; ")}`);
+  }
+  let missing = missingPoints(output, points);
+  if (missing.length) {
+    retries += 1;
+    const retry = await run(ctx.llm, prompt, { ...input, feedback: [missingFeedback(missing)] });
+    const retryMissing = missingPoints(retry.object, points);
+    if (validateCompose(retry.object, points, known).length === 0 && retryMissing.length < missing.length) {
+      output = retry.object;
+      model = retry.model;
+      missing = retryMissing;
+    }
+  }
+  return { output, model, retries, missing: missing.map((point) => point.id) };
 }
-
-export function contentTokens(input: KnowledgeProcessingInput): number {
-  const turns = input.item.turns?.map((turn) => `${turn.question}\n${turn.answer}`).join("\n") ?? "";
-  return estimateTokens(`${input.item.content ?? ""}${turns}`);
-}
-
-export const longJudgeOutputSchema = z.object({
-  item_id: z.string(),
-  decision: z.enum(["new", "supplement", "duplicate", "reject"]),
-  value_score: z.number().min(0).max(1),
-  reason: z.string(),
-  reject_reason: z.enum(REJECT_REASONS).nullable(),
-  target_entry_ids: z.array(z.string()).describe("duplicate 时被覆盖的已有词条 entry_id，否则为空数组"),
-  focus_sections: z.array(z.string()).describe("new / supplement 时值得抽取的章节标题原文")
-});
-export type LongJudgeOutput = z.infer<typeof longJudgeOutputSchema>;
-
-const LONG_JUDGE_SYSTEM = `${PROMPTS.knowledge_processing.system}
-
-## 仅判定模式（长文第一步）
-本次只给出正文节选。只输出 decision、value_score、reason、reject_reason（非 reject 时为 null）、target_entry_ids（duplicate 时填写）与 focus_sections（new / supplement 时列出值得抽取的章节标题原文）；不要抽取概念、不要写补丁。`;
 
 export type ProcessOutcome = {
   output: KnowledgeProcessingOutput;
-  /** Raw model output(s) before the τ fallback, kept in `organize_results.output` for calibration. */
+  /** Per-step model outputs, kept in `organize_results.output` for calibration. */
   raw: unknown;
-  route: "llm" | "llm_long";
+  route: "llm";
   fallback: ValueScoreFallbackResult | null;
   model: string | null;
 };
 
-async function processOnce(ctx: ProcessingContext, input: KnowledgeProcessingInput): Promise<{ output: KnowledgeProcessingOutput; model: string }> {
-  const prompt = PROMPTS.knowledge_processing;
-  const { object, model } = await callLlm(ctx.llm, {
-    stage: "knowledge_processing",
-    task: "knowledge_processing",
-    schema: prompt.outputSchema(input) as z.ZodType<KnowledgeProcessingOutput>,
-    system: prompt.system,
-    prompt: prompt.buildUserPrompt(input),
-    promptVersion: prompt.version,
-    input
-  });
-  return { output: object, model };
-}
-
-function excerptEvidence(item: OrganizeItem, excerpt: string): Array<{ quote: string; question: string | null; turn_item_id: string | null }> {
+function excerptEvidence(item: OrganizeItem): Array<{ quote: string; question: string | null; turn_item_id: string | null }> {
   const quote =
     item.highlights[0] ??
-    excerpt
+    item.body
       .split("\n")
       .find((line) => line.trim() && !line.startsWith("#"))
       ?.trim() ??
@@ -307,74 +430,61 @@ export async function processUnit(
   related: ScoredRelatedEntry[],
   entriesById: Map<string, EntryRecord>
 ): Promise<ProcessOutcome> {
-  const input = buildProcessingInput(ctx, unit, related, entriesById);
   const anchor = unit.items[0]!;
-  let route: ProcessOutcome["route"] = "llm";
-  let output: KnowledgeProcessingOutput;
-  let model: string | null;
-  let raw: unknown;
-
-  if (anchor.type !== "conversation" && contentTokens(input) > CONTENT_TOKEN_BUDGET) {
-    route = "llm_long";
-    const excerpt = buildExcerpt(anchor);
-    const judgeInput = { ...input, item: { ...input.item, content: excerpt } };
-    const prompt = PROMPTS.knowledge_processing;
-    const judged = await callLlm(ctx.llm, {
-      stage: "knowledge_processing",
-      task: "knowledge_processing",
-      schema: longJudgeOutputSchema,
-      system: LONG_JUDGE_SYSTEM,
-      prompt: prompt.buildUserPrompt(judgeInput),
-      promptVersion: LONG_JUDGE_PROMPT_VERSION,
-      input: { ...judgeInput, judge_only: true }
-    });
-    const verdict = judged.object;
-    model = judged.model;
-    const decision = unit.adopt && verdict.decision === "reject" ? "new" : verdict.decision;
-    if (decision === "reject") {
-      output = {
-        item_id: anchor.id,
-        decision,
-        value_score: verdict.value_score,
-        reason: verdict.reason,
-        reject_reason: verdict.reject_reason ?? "low_information"
-      };
-      raw = { judge: verdict };
-    } else if (decision === "duplicate") {
-      const targets = verdict.target_entry_ids.filter((id) => entriesById.has(id));
-      if (targets.length === 0) throw new Error("long-path duplicate without a known target entry");
-      output = {
-        item_id: anchor.id,
-        decision,
-        value_score: verdict.value_score,
-        reason: verdict.reason,
-        target_entry_ids: targets,
-        evidence_by_entry: targets.map((entry_id) => ({ entry_id, evidence: excerptEvidence(anchor, excerpt) }))
-      };
-      raw = { judge: verdict };
-    } else {
-      const focused = buildProcessingInput(ctx, unit, related, entriesById, buildFocusContent(anchor, verdict.focus_sections));
-      const extracted = await processOnce(ctx, focused);
-      output = extracted.output;
-      model = extracted.model;
-      raw = { judge: verdict, extract: extracted.output };
-    }
-  } else {
-    const result = await processOnce(ctx, input);
-    output = result.output;
-    model = result.model;
-    raw = result.output;
-  }
-
-  if (unit.adopt) return { output, raw, route, fallback: null, model };
-  const fallback = applyValueScoreFallback({
-    decision: output.decision,
-    value_score: output.value_score,
-    engagement: unit.engagement,
-    uncertain: unit.episode?.uncertain ?? false
+  const triage = await run(ctx.llm, PROMPTS.knowledge_triage as Prompt<KnowledgeTriageInput, KnowledgeTriageOutput>, buildTriageInput(ctx, unit, related, entriesById));
+  const verdict = triage.object;
+  const raw: Record<string, unknown> = { triage: verdict };
+  const base = { item_id: anchor.id, value_score: verdict.value_score, reason: verdict.reason };
+  const outcome = (output: KnowledgeProcessingOutput, model: string, fallback: ValueScoreFallbackResult | null = null): ProcessOutcome => ({
+    output,
+    raw,
+    route: "llm",
+    fallback,
+    model
   });
-  if (fallback.overridden) {
-    output = { item_id: output.item_id, decision: "reject", value_score: output.value_score, reason: output.reason, reject_reason: "low_information" };
+
+  let decision = verdict.decision;
+  if (unit.adopt && decision === "reject") decision = "proceed";
+  const targets = verdict.target_entry_ids.filter((id) => entriesById.has(id));
+  if (decision === "duplicate" && (hasUserMarks(unit) || targets.length === 0)) decision = "proceed";
+
+  if (decision === "reject") return outcome({ ...base, decision: "reject", reject_reason: verdict.reject_reason ?? "low_information" }, triage.model);
+  if (decision === "duplicate") {
+    const evidence = verdict.duplicate_quotes.length
+      ? verdict.duplicate_quotes.map((quote) => ({ quote, question: null, turn_item_id: null }))
+      : excerptEvidence(anchor);
+    return outcome({ ...base, decision: "duplicate", target_entry_ids: targets, evidence_by_entry: targets.map((entry_id) => ({ entry_id, evidence })) }, triage.model);
   }
-  return { output, raw, route, fallback, model };
+
+  let fallback: ValueScoreFallbackResult | null = null;
+  if (!unit.adopt) {
+    fallback = applyValueScoreFallback({ decision: "new", value_score: verdict.value_score, engagement: unit.engagement, uncertain: unit.episode?.uncertain ?? false });
+    if (fallback.overridden) return outcome({ ...base, decision: "reject", reject_reason: "low_information" }, triage.model, fallback);
+  }
+
+  const focus = { thesis: verdict.thesis?.trim() || anchor.title, user_focus: verdict.user_focus };
+  const chunks = chunkUnit(unit);
+  const extractPrompt = PROMPTS.knowledge_extract as Prompt<KnowledgeExtractInput, KnowledgeExtractOutput>;
+  const extracted = await mapLimit(chunks, EXTRACT_CONCURRENCY, (chunk) =>
+    retryOnce(ctx.llm, () => run(ctx.llm, extractPrompt, extractInput(unit, chunk, focus.thesis, focus.user_focus)))
+  );
+  const points = collectPoints(
+    unit,
+    extracted.map((result) => result.object)
+  );
+  raw.chunks = chunks.length;
+  raw.points = points;
+  if (points.length === 0) {
+    if (unit.adopt) throw new Error("extract produced no knowledge points");
+    return outcome({ ...base, decision: "reject", reject_reason: "low_information" }, extracted[0]?.model ?? triage.model, fallback);
+  }
+
+  const candidates = await candidateEntries(ctx, points, related, entriesById);
+  const composed = await composeWithCoverage(ctx, composeInput(ctx, unit, points, candidates, focus), points);
+  raw.compose = composed.output;
+  raw.compose_retries = composed.retries;
+  raw.missing_after_retry = composed.missing;
+  const output = assembleResult(composed.output, points, base);
+  if (unit.adopt && output.decision === "reject") throw new Error("compose assigned no knowledge points in adopt mode");
+  return outcome(output, composed.model, fallback);
 }

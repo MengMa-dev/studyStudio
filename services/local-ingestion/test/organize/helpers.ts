@@ -36,29 +36,106 @@ export function recordedTurns(name: string): Array<{ turn_item_id: string; quest
   return input.item.turns ?? [];
 }
 
-type Input = Record<string, unknown> & {
+export type Input = Record<string, unknown> & {
+  step?: "triage" | "extract" | "compose";
   item?: { item_id?: string };
   entry?: { entry_id?: string };
+  chunk?: { index: number };
   timeline?: unknown[];
   mode?: string;
-  judge_only?: boolean;
+  feedback?: string[] | null;
 };
+
+const stepRule =
+  (step: NonNullable<Input["step"]>) =>
+  (itemId: string, out: unknown, when: (input: Input) => boolean = () => true): MockRule => ({
+    match: ({ input }) => (input as Input)?.step === step && (input as Input).item?.item_id === itemId && when(input as Input),
+    output: out
+  });
 
 /** Replay rules keyed on the task input shape (pipeline inputs differ from recorded ones, so `task:inputHash` lookups never hit). */
 export const replay = {
   judge(out: unknown, when: (input: Input) => boolean = () => true): MockRule {
     return { match: ({ input }) => Array.isArray((input as Input)?.timeline) && when(input as Input), output: out };
   },
-  process(itemId: string, out: unknown, when: (input: Input) => boolean = () => true): MockRule {
-    return { match: ({ input }) => (input as Input)?.item?.item_id === itemId && !(input as Input).judge_only && when(input as Input), output: out };
-  },
-  longJudge(itemId: string, out: unknown): MockRule {
-    return { match: ({ input }) => (input as Input)?.item?.item_id === itemId && Boolean((input as Input).judge_only), output: out };
-  },
-  rewrite(entryId: string, out: unknown): MockRule {
-    return { match: ({ input }) => (input as Input)?.entry?.entry_id === entryId && "evidence" in (input as Input), output: out };
+  triage: stepRule("triage"),
+  extract: stepRule("extract"),
+  compose: stepRule("compose"),
+  rewrite(entryId: string, out: unknown, when: (input: Input) => boolean = () => true): MockRule {
+    return { match: ({ input }) => (input as Input)?.entry?.entry_id === entryId && "evidence" in (input as Input) && when(input as Input), output: out };
   }
 };
+
+type RecordedEvidence = { quote: string; question?: string | null; turn_item_id?: string | null };
+type RecordedConcept = Record<string, unknown> & { name: string; match: string; evidence: RecordedEvidence[] };
+type RecordedOutput = Record<string, unknown> & {
+  decision: "new" | "supplement" | "duplicate" | "reject";
+  value_score: number;
+  reason: string;
+  reject_reason?: string;
+  item_summary?: string;
+  item_points?: string[];
+  concepts?: RecordedConcept[];
+  relations?: unknown[];
+  target_entry_ids?: string[];
+  evidence_by_entry?: Array<{ entry_id: string; evidence: RecordedEvidence[] }>;
+};
+
+/**
+ * Splits a recorded single-call ⑤ output into S1 triage / S2 extract (all points in chunk 0) / S3+S4 compose replays.
+ * Every evidence quote becomes one core point; duplicates become existing-entry concepts with `patch: null`.
+ */
+export function steps(itemId: string, data: unknown, options: { duplicateAtTriage?: boolean } = {}): MockRule[] {
+  const recorded = data as RecordedOutput;
+  const triage = {
+    item_id: itemId,
+    decision: recorded.decision === "new" || recorded.decision === "supplement" ? "proceed" : recorded.decision,
+    value_score: recorded.value_score,
+    reason: recorded.reason,
+    reject_reason: recorded.decision === "reject" ? (recorded.reject_reason ?? "low_information") : null,
+    target_entry_ids: recorded.decision === "duplicate" && options.duplicateAtTriage !== false ? (recorded.target_entry_ids ?? []) : [],
+    duplicate_quotes: recorded.decision === "duplicate" ? (recorded.evidence_by_entry ?? []).flatMap((entry) => entry.evidence.map((item) => item.quote)) : [],
+    thesis: recorded.item_summary ?? recorded.reason,
+    user_focus: []
+  };
+  const rules = [replay.triage(itemId, triage)];
+  if (recorded.decision === "reject") return rules;
+
+  const groups: Array<{ concept: RecordedConcept; evidence: RecordedEvidence[] }> =
+    recorded.decision === "duplicate"
+      ? (recorded.evidence_by_entry ?? []).map((entry) => ({
+          concept: { name: entry.entry_id, match: entry.entry_id, aliases: [], kind: "概念", evidence: entry.evidence, patch: null },
+          evidence: entry.evidence
+        }))
+      : (recorded.concepts ?? []).map((concept) => ({ concept, evidence: concept.evidence }));
+  let next = 0;
+  const points: Array<Record<string, unknown>> = [];
+  const concepts = groups.map(({ concept, evidence }) => {
+    const { evidence: _evidence, ...rest } = concept;
+    const point_ids = evidence.map((item) => {
+      next += 1;
+      points.push({ statement: item.quote, quote: item.quote, section: null, concept: concept.name, importance: "core", turn_item_id: item.turn_item_id ?? null });
+      return `p${next}`;
+    });
+    return { category: null, summary: null, body_markdown: null, completeness: null, patch: null, ...rest, point_ids };
+  });
+  return [
+    ...rules,
+    replay.extract(itemId, { points }, (input) => input.chunk?.index === 0),
+    replay.extract(itemId, { points: [] }),
+    replay.compose(itemId, {
+      item_summary: recorded.item_summary ?? recorded.reason,
+      item_points: recorded.item_points ?? [],
+      concepts,
+      relations: recorded.relations ?? [],
+      dropped: []
+    })
+  ];
+}
+
+export function stepCalls(prompts: Array<{ input: unknown }>, step: NonNullable<Input["step"]>, itemId?: string): Input[] {
+  return prompts.map((call) => call.input as Input).filter((input) => input?.step === step && (!itemId || input.item?.item_id === itemId));
+}
 
 export type ReplayGateway = { gateway: AiGateway; config: MemoryProviderConfigStore; usage: MemoryUsageStore; prompts: Array<{ input: unknown }> };
 

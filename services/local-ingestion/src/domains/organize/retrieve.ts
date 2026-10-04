@@ -16,7 +16,7 @@ const QUERY_HEAD_TOKENS = 500;
 
 export type EpisodeQuery = { key: string; topic: string | null; learningGoal: string | null; relatedExploration: string[] };
 
-function headByTokens(text: string, tokens: number): string {
+export function headByTokens(text: string, tokens: number): string {
   if (estimateTokens(text) <= tokens) return text;
   let end = Math.min(text.length, tokens * 2);
   while (end > 0 && estimateTokens(text.slice(0, end)) > tokens) end = Math.floor(end * 0.8);

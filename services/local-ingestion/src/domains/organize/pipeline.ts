@@ -545,6 +545,7 @@ async function runUnit(
   const processing: ProcessingContext = {
     db,
     llm: state.llm,
+    indexCtx: state.deps.searchIndex ? shared.indexCtx : null,
     profile: { role: state.profile.role, learning_focus: state.profile.learning_focus.map((entry) => entry.topic) },
     requirement: state.spec.requirement,
     fuzzyNotes: fuzzy.map((note) => note.text),

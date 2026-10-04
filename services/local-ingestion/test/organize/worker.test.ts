@@ -28,6 +28,7 @@ import {
   recordedContent,
   recordedTurns,
   replay,
+  steps,
   setLearnerProfile,
   type TestEnv
 } from "./helpers";
@@ -74,8 +75,8 @@ function rules() {
         ]
       })
     ),
-    replay.process("item_B", output("knowledge_processing", "conversation-thread")),
-    replay.process("item_C", output("knowledge_processing", "supplement")),
+    ...steps("item_B", output("knowledge_processing", "conversation-thread")),
+    ...steps("item_C", output("knowledge_processing", "supplement")),
     replay.rewrite("kb_hitl", output("entry_rewrite", "manual-patched")),
     replay.rewrite("kb_checkpoint", output("entry_rewrite", "stale"))
   ];

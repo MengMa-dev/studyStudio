@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { sourceKindOf, type OrganizeRunEntryChange } from "@study-studio/shared";
-import type { KnowledgeProcessingOutput } from "../../ai/prompts/schemas.draft.js";
+import type { KnowledgeProcessingOutput, PointImportance } from "../../ai/prompts/schemas.draft.js";
 import { withTransaction } from "../../db/database.js";
 import { normalizeKind } from "../kb/queries.js";
 import { decideAlignment, demoteNewBodyToSupplement } from "./align.js";
@@ -13,8 +13,8 @@ import type { PatchOp } from "./types.js";
 
 /** ⑥ Knowledge Integration: one transaction per work unit (KB writes + organize_results + inbox status). */
 
-export type StoredEvidence = { quote: string; question?: string; turnItemId?: string };
-type ModelEvidence = { quote: string; question?: string | null; turn_item_id?: string | null };
+export type StoredEvidence = { quote: string; question?: string; turnItemId?: string; point?: string; importance?: PointImportance };
+type ModelEvidence = { quote: string; question?: string | null; turn_item_id?: string | null; point?: string | null; importance?: PointImportance | null };
 
 export type EntryChange = { entryId: string; name: string; change: OrganizeRunEntryChange["change"] };
 
@@ -57,7 +57,9 @@ function toStoredEvidence(evidence: ModelEvidence): StoredEvidence {
   return {
     quote: evidence.quote,
     ...(evidence.question ? { question: evidence.question } : {}),
-    ...(evidence.turn_item_id ? { turnItemId: evidence.turn_item_id } : {})
+    ...(evidence.turn_item_id ? { turnItemId: evidence.turn_item_id } : {}),
+    ...(evidence.point ? { point: evidence.point } : {}),
+    ...(evidence.importance ? { importance: evidence.importance } : {})
   };
 }
 
