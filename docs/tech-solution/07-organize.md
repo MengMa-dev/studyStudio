@@ -63,8 +63,8 @@
 ④ Retrieve & Prefilter  已有知识检索 + 规则预过滤（本地）
     ├─ 命中规则 → duplicate / reject → ⑥
     ↓
-⑤ Knowledge Processing  知识处理（LLM，强模型，一次调用）
-    判定 reject / duplicate / new / supplement + 抽取 + 词条对齐 + 补丁 / 新词条正文
+⑤ Knowledge Processing  知识处理（多轮，见 15）
+    S1 判定（小模型）→ 分块 → S2 逐块抽知识点（小模型，并行）→ 候选召回 → S3+S4 对齐与写作（强模型）→ S5 覆盖校验
     ↓
 ⑥ Knowledge Integration 知识入库（程序）：写库、应用补丁、派生更新 → 条目 ingested / rejected
     └──────────────────────────────────────────────────────────┘
@@ -295,7 +295,14 @@ recency_relevance = similarity × recency_weight
 
 ## ⑤ 知识处理（Knowledge Processing）
 
-每个候选条目一次 LLM 调用（任务模型：知识处理，`generateObject`），一次完成：**判定**（是否入库、新旧）、**抽取**、**词条对齐**、**已有词条补丁 / 新词条正文**。问答按会话线程组装为一个输入（见「问答的处理」）。
+每个候选条目多轮调用，详见 [15 整理多轮处理](./15-organize-multistep.md)：
+
+1. **S1 判定**（小模型）：大纲 + 节选 → `proceed` / `duplicate` / `reject` + 核心论点；有划线 / 笔记的条目不在 S1 判 `duplicate`；`reject` / `duplicate` 到此结束。
+2. **分块 + S2 抽取**（小模型，并发 3）：文档按标题 / 段落切块（约 6k token），问答按整轮切块；每块输出带 `importance`（core / supporting / detail）的知识点与逐字引文。
+3. **S3+S4 对齐与写作**（强模型）：按概念召回候选词条，把知识点分配到已有 / 新词条并写补丁 / 正文，舍弃的知识点必须给理由。
+4. **S5 覆盖校验**：结构问题重试一次（仍失败 → `failed`）；core / supporting 遗漏重试一次，保留更好的结果，剩余遗漏记入 `organize_results.output.missing_after_retry`。
+
+程序把多轮结果组装为下文的单一输出结构，⑥ 不变。问答按会话线程组装（见「问答的处理」）。下面的输入 / 输出描述的是组装后的整体语义。
 
 ### 输入
 
@@ -428,10 +435,7 @@ recency_relevance = similarity × recency_weight
 
 ### 长文
 
-正文超出预算时退回两步（唯一多次调用的路径）：
-
-1. 判定：节选（高亮 / 划选附近段落 → 按 `exposed_seconds` 降序的章节 → 正文前段，约 3k token）+ `related_entries` 调用一次 ⑤ 的仅判定模式，输出 `decision`、`value_score`、`reason`、`focus_sections`。
-2. `new` / `supplement`：只取 `focus_sections` 与高露出章节，按章节切块逐块抽取（map），最后一次调用合并并生成补丁 / 新词条正文（reduce）。
+长短内容同一路径：S1 只看大纲 + 节选（高亮附近 → 高露出章节 → 正文前段，约 3k token），S2 按分块覆盖全文所有章节，不再只取重点章节。
 
 ### 问答的处理
 
@@ -496,8 +500,9 @@ recency_relevance = similarity × recency_weight
 | 全量整理 | 全部词条 |
 
 ```text
-输入：该词条所有来源的 evidence（按 source_kind 可靠性排序）+ 知识点备注 + 现有正文 + 关联词条名
-输出：body_markdown、summary、completeness{ covered[], missing[] }；重写后 patch_count 归零
+输入：该词条所有来源的 evidence（带 id、point、importance；按 importance → source_kind 可靠性排序，截断到约 16k token）+ 知识点备注 + 现有正文 + 关联词条名
+输出：body_markdown、summary、completeness{ covered[], missing[] }、covered_ids、dropped[{id, reason}]；重写后 patch_count 归零
+覆盖校验：core / supporting 证据既未 covered 也未 dropped → 带反馈重试一次，保留遗漏更少的结果
 user_edited 词条：不覆盖正文，只追加「整理建议」段
 ```
 
@@ -527,7 +532,7 @@ user_edited 词条：不覆盖正文，只追加「整理建议」段
 - 成本控制：
   - ③ 只传行为摘要，可用小模型；
   - ④ 规则预过滤，近重复、导航页、`kb_ignore` 不调 LLM；
-  - ⑤ 每条目一次调用完成判定、抽取、对齐与补丁；`reject` / `duplicate` 只输出判定字段；只有最相关的 2 个词条附正文；
+  - ⑤ S1 / S2 用小模型，`reject` / `duplicate` 不调用强模型；只有 S3+S4 用强模型，候选词条正文合计 ≤ 12k token；
   - 词条全量重写只在手动、`stale`、全量整理时发生。
 
 ## 选型

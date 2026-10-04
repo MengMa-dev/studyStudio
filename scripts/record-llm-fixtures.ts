@@ -1,10 +1,10 @@
 /**
- * Records real LLM responses for ③ learning judge, ⑤ knowledge processing and entry rewrite as replay fixtures.
+ * Records real LLM responses for ③ learning judge, ⑤ triage / extract / compose and entry rewrite as replay fixtures.
  * Output: services/local-ingestion/test/fixtures/llm/<task>/<name>.json
  *   { task, promptVersion, inputHash: sha256(JSON.stringify(input)), provider, model, input, output, usage, recordedAt }
  * Results (including failures) are merged into services/local-ingestion/test/fixtures/llm/recording-log.json.
  *
- * Usage: tsx scripts/record-llm-fixtures.ts [--only=learning_judge,knowledge_processing,entry_rewrite] [--sample=name,...] [--fallback | --model=provider:model] [--force]
+ * Usage: tsx scripts/record-llm-fixtures.ts [--only=learning_judge,knowledge_triage,knowledge_extract,knowledge_compose,entry_rewrite] [--sample=name,...] [--fallback | --model=provider:model] [--force]
  *   --fallback  use the task's fallback model from ai-seed.json instead of the primary
  *   --model     use any provider from ai-seed.json, e.g. --model=gemini:gemini-3.5-flash-lite
  *   --force     re-record samples whose fixture already exists for the current prompt version (default: skip, to save quota)
@@ -22,7 +22,14 @@ import { createOllama } from "ollama-ai-provider-v2";
 import { format, resolveConfig } from "prettier";
 import { z } from "zod";
 import { PROMPTS, type PromptTask } from "../services/local-ingestion/src/ai/prompts/index";
-import { entryRewriteSamples, knowledgeProcessingSamples, learningJudgeSamples, type Sample } from "../services/local-ingestion/test/fixtures/llm/samples";
+import {
+  entryRewriteSamples,
+  knowledgeComposeSamples,
+  knowledgeExtractSamples,
+  knowledgeTriageSamples,
+  learningJudgeSamples,
+  type Sample
+} from "../services/local-ingestion/test/fixtures/llm/samples";
 
 const root = resolve(import.meta.dirname, "..");
 const dataDir = process.env.STUDY_STUDIO_DATA_DIR ?? join(root, "StudyStudioData");
@@ -47,7 +54,9 @@ const MIN_INTERVAL_MS: Record<string, number> = { "gemini-3.8-flash": 13_000, "g
 type AnySample = Sample<any, any>;
 const SAMPLES: Record<PromptTask, AnySample[]> = {
   learning_judge: learningJudgeSamples,
-  knowledge_processing: knowledgeProcessingSamples,
+  knowledge_triage: knowledgeTriageSamples,
+  knowledge_extract: knowledgeExtractSamples,
+  knowledge_compose: knowledgeComposeSamples,
   entry_rewrite: entryRewriteSamples
 };
 
@@ -61,7 +70,8 @@ type Target = { providerId: string; type: string; modelId: string; model: (mode:
 const seed = JSON.parse(await readFile(join(dataDir, "ai-seed.json"), "utf8")) as Seed;
 const secrets = JSON.parse(await readFile(join(dataDir, "secrets.json"), "utf8").catch(() => "{}")) as { providers?: Record<string, { apiKey: string }> };
 
-function targetFor(task: PromptTask): Target {
+function targetFor(name: PromptTask): Target {
+  const task = PROMPTS[name].task;
   const row = seed.task_models.find((item) => item.task === task);
   if (!row) throw new Error(`task ${task} missing in ai-seed.json`);
   const [overrideProvider, ...overrideModel] = modelOverride?.split(":") ?? [];

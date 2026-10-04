@@ -3,15 +3,24 @@
  * Learner profile follows the dev convention: role 前端开发, learning focus Agent 架构.
  * `check` returns the mismatches between a recorded output and the expected branch (empty = as expected).
  */
+import { readFileSync } from "node:fs";
 import { SEED_KINDS } from "@study-studio/shared";
 import type {
   EntryRewriteInput,
   EntryRewriteOutput,
+  KnowledgeComposeInput,
+  KnowledgeComposeOutput,
+  KnowledgeExtractInput,
+  KnowledgeExtractOutput,
   KnowledgeProcessingInput,
   KnowledgeProcessingOutput,
+  KnowledgeTriageInput,
+  KnowledgeTriageOutput,
   LearningJudgeInput,
   LearningJudgeOutput
 } from "../../../src/ai/prompts/schemas.draft";
+import { missingPoints, validateCompose, type KnowledgePoint } from "../../../src/domains/organize/coverage";
+import { outlineOf } from "../../../src/domains/organize/store";
 
 export type Sample<I, O> = { name: string; expected: string; input: I; check: (output: O) => string[] };
 
@@ -603,7 +612,110 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
   }
 ];
 
+// ⑤ multistep samples, derived from the knowledge_processing samples above
+
+const stripExposure = (text: string) => text.replace(/ \[露出:[^\]]+\]/g, "");
+const proceeds = (sample: (typeof knowledgeProcessingSamples)[number]) => !/^(duplicate|reject)/.test(sample.name);
+
+export const knowledgeTriageSamples: Sample<KnowledgeTriageInput, KnowledgeTriageOutput>[] = knowledgeProcessingSamples.map(({ name, expected, input }) => {
+  const { content, turns, ...item } = input.item;
+  const decision = name.startsWith("reject") ? "reject" : name === "duplicate" ? "duplicate" : "proceed";
+  return {
+    name,
+    expected: `${decision}（${expected}）`,
+    input: {
+      step: "triage",
+      mode: input.mode,
+      episode: input.episode,
+      learner_profile: input.learner_profile,
+      item: { ...item, outline: content ? outlineOf(stripExposure(content)) : [], ...(content ? { excerpt: stripExposure(content) } : {}), ...(turns ? { turns } : {}) },
+      related_entries: input.related_entries.map(({ body_markdown: _body, ...entry }) => entry),
+      ignored_names: input.ignored_names
+    },
+    check: (output) => {
+      const problems = output.decision === decision ? [] : [`decision 应为 ${decision}，实际 ${output.decision}`];
+      if (output.decision === "proceed" && !output.thesis) problems.push("proceed 缺少 thesis");
+      return problems;
+    }
+  };
+});
+
+const squash = (text: string) => text.replace(/\s+/g, "");
+
+export const knowledgeExtractSamples: Sample<KnowledgeExtractInput, KnowledgeExtractOutput>[] = knowledgeProcessingSamples.filter(proceeds).map(({ name, input }) => {
+  const text = input.item.content ? stripExposure(input.item.content) : null;
+  const source = squash(text ?? (input.item.turns ?? []).map((turn) => turn.answer).join(""));
+  return {
+    name,
+    expected: "抽出非空知识点，quote 逐字来自原文",
+    input: {
+      step: "extract",
+      item: { item_id: input.item.item_id, type: input.item.type, source_kind: input.item.source_kind, title: input.item.title },
+      thesis: input.episode?.learning_goal ?? input.item.title,
+      user_focus: [],
+      user_highlights: input.item.user_highlights,
+      user_note: input.item.user_note,
+      chunk: { index: 0, total: 1, heading_path: [], text, turns: input.item.turns ?? null, context_question: null }
+    },
+    check: (output) => [
+      ...(output.points.length ? [] : ["没有知识点"]),
+      ...output.points.filter((point) => !source.includes(squash(point.quote))).map((point) => `quote 不在原文：${point.quote.slice(0, 40)}`)
+    ]
+  };
+});
+
+type RecordedProcessing = { output: KnowledgeProcessingOutput };
+function recordedProcessing(name: string): KnowledgeProcessingOutput | null {
+  try {
+    return (JSON.parse(readFileSync(new URL(`./knowledge_processing/${name}.json`, import.meta.url), "utf8")) as RecordedProcessing).output;
+  } catch {
+    return null;
+  }
+}
+
+/** Points come from the recorded knowledge_processing evidence (one core point per quote). */
+export const knowledgeComposeSamples: Sample<KnowledgeComposeInput, KnowledgeComposeOutput>[] = knowledgeProcessingSamples.filter(proceeds).flatMap(({ name, expected, input }) => {
+  const recorded = recordedProcessing(name);
+  if (!recorded || !("concepts" in recorded)) return [];
+  const points: KnowledgePoint[] = recorded.concepts.flatMap((concept) =>
+    concept.evidence.map((evidence) => ({ statement: evidence.quote, quote: evidence.quote, section: null, concept: concept.name, importance: "core" as const, turn_item_id: evidence.turn_item_id ?? null, question: evidence.question ?? null }))
+  ).map((point, index) => ({ id: `p${index + 1}`, ...point }));
+  const known = new Set([...input.related_entries, ...input.neighbor_entries].map((entry) => entry.entry_id));
+  return [
+    {
+      name,
+      expected,
+      input: {
+        step: "compose",
+        mode: input.mode,
+        learner_profile: input.learner_profile,
+        item: {
+          item_id: input.item.item_id,
+          type: input.item.type,
+          source_kind: input.item.source_kind,
+          title: input.item.title,
+          thesis: input.episode?.learning_goal ?? input.item.title,
+          user_focus: [],
+          requirement: input.item.requirement
+        },
+        points: points.map(({ id, statement, concept, importance, section }) => ({ id, statement, concept, importance, section })),
+        candidate_entries: input.related_entries.map(({ similarity: _s, recency_relevance: _r, ...entry }) => entry),
+        neighbor_entries: input.neighbor_entries,
+        ignored_names: input.ignored_names,
+        categories: input.categories,
+        kinds: input.kinds,
+        feedback: null
+      },
+      check: (output) => [...validateCompose(output, points, known), ...missingPoints(output, points).map((point) => `遗漏 ${point.id}`)]
+    }
+  ];
+});
+
 // Entry Rewrite
+
+function rewriteEvidence(list: Array<Omit<EntryRewriteInput["evidence"][number], "id" | "point" | "importance">>): EntryRewriteInput["evidence"] {
+  return list.map((item, index) => ({ id: `e${index + 1}`, point: null, importance: "supporting", ...item }));
+}
 
 export const entryRewriteSamples: Sample<EntryRewriteInput, EntryRewriteOutput>[] = [
   {
@@ -622,7 +734,7 @@ export const entryRewriteSamples: Sample<EntryRewriteInput, EntryRewriteOutput>[
           "## 定义\n在 Agent 执行过程中插入人工审批或输入节点，由人确认后再继续。\n## 实现方式\n在需要人工介入的节点暂停执行，等待用户输入后继续。\nLangGraph 中用 interrupt() 暂停。\n## 常见场景\n- 工具调用前审批（如发邮件、付款）\n- 让用户修改 Agent 生成的计划\n## 补充\n恢复时用 Command(resume=...)。\n## 依赖 checkpoint 持久化\n暂停后的状态保存在 checkpointer 中，需要同一个 thread_id 才能恢复。\n## 补充\ninterrupt() 所在节点恢复时会从头执行，副作用要放在 interrupt() 之后。\n## 补充\n也可以直接编辑图状态再继续。"
       },
       trigger: "manual",
-      evidence: [
+      evidence: rewriteEvidence([
         {
           item_id: "item_C",
           source_kind: "official_doc",
@@ -661,10 +773,11 @@ export const entryRewriteSamples: Sample<EntryRewriteInput, EntryRewriteOutput>[
           quote: "常见模式：审批 / 拒绝工具调用、编辑图状态后继续、让用户校验输入。",
           question: null
         }
-      ],
+      ]),
       entry_notes: ["希望讲清楚 HITL 和 checkpoint 的关系"],
       requirement: "按 定义 / 实现 / 恢复与注意事项 / 常见场景 组织",
-      related_entry_names: ["Checkpoint", "interrupt()", "LangGraph"]
+      related_entry_names: ["Checkpoint", "interrupt()", "LangGraph"],
+      feedback: null
     },
     check: (output) => {
       const problems: string[] = [];
@@ -689,7 +802,7 @@ export const entryRewriteSamples: Sample<EntryRewriteInput, EntryRewriteOutput>[
           "## 定义\nLangGraph 在每个 super-step 结束时把图状态保存为 checkpoint，按 thread_id 组织。\n## Checkpointer 实现\n- MemorySaver：内存，测试用\n- SqliteSaver / PostgresSaver：持久化，生产用\n- PostgresSaver 默认 7 天后自动清理旧 checkpoint\n## 用途\n- 对话记忆（同一 thread 继续）\n- 失败后从最近 checkpoint 恢复\n- 时间回溯（replay / fork）\n- interrupt 暂停后的状态也保存在 checkpoint 中"
       },
       trigger: "stale",
-      evidence: [
+      evidence: rewriteEvidence([
         {
           item_id: "item_A",
           source_kind: "official_doc",
@@ -719,10 +832,11 @@ export const entryRewriteSamples: Sample<EntryRewriteInput, EntryRewriteOutput>[
           quote: "interrupt 依赖 checkpoint：没有 checkpointer 时暂停后的状态无处保存，也就无法恢复。",
           question: "checkpoint 和 interrupt 有什么区别？"
         }
-      ],
+      ]),
       entry_notes: [],
       requirement: null,
-      related_entry_names: ["Human-in-the-loop", "interrupt()", "LangGraph"]
+      related_entry_names: ["Human-in-the-loop", "interrupt()", "LangGraph"],
+      feedback: null
     },
     check: (output) => (/7 ?天|自动清理/.test(output.body_markdown) ? ["仍保留无来源支撑的「自动清理」内容"] : [])
   }
