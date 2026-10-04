@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { AiGateway, type AiGatewayOptions } from "./ai/gateway.js";
 import { SecretsFile, secretsPathFor } from "./ai/secrets.js";
@@ -57,6 +57,18 @@ function ensurePairingToken(dataDir: string, pairingToken: string): string {
   return pairingToken;
 }
 
+function ensureMcpToken(dataDir: string): string {
+  mkdirSync(dataDir, { recursive: true });
+  const tokenFile = join(dataDir, "mcp-token");
+  if (existsSync(tokenFile)) {
+    const token = readFileSync(tokenFile, "utf8").trim();
+    if (token) return token;
+  }
+  const token = randomBytes(32).toString("base64url");
+  writeFileSync(tokenFile, token, { mode: 0o600 });
+  return token;
+}
+
 export async function createIngestionServer(options: CreateIngestionServerOptions): Promise<IngestionServer> {
   if (!options.pairingToken) throw new Error("pairingToken is required");
   const dataDir = options.dataDir;
@@ -91,7 +103,7 @@ export async function createIngestionServer(options: CreateIngestionServerOption
   if (!options.disableBackgroundIndex) chunkIndexer.backfill();
 
   let port = 0;
-  const auth = createAuthState(options.pairingToken, port);
+  const auth = createAuthState(options.pairingToken, port, ensureMcpToken(dataDir));
   const presence = new PresenceStore();
   const ingestCtx = {
     app: appDb,

@@ -6,6 +6,8 @@ export const WORKBENCH_COOKIE = "ss_session";
 
 export type AuthState = {
   pairingToken: string;
+  /** Bearer token for `/mcp` (external agents); reset replaces it in place. */
+  mcpToken: string;
   port: number;
   /** One-time login codes → expiry ms. */
   loginCodes: Map<string, number>;
@@ -13,8 +15,8 @@ export type AuthState = {
   sessions: Set<string>;
 };
 
-export function createAuthState(pairingToken: string, port: number): AuthState {
-  return { pairingToken, port, loginCodes: new Map(), sessions: new Set() };
+export function createAuthState(pairingToken: string, port: number, mcpToken = randomBytes(32).toString("base64url")): AuthState {
+  return { pairingToken, mcpToken, port, loginCodes: new Map(), sessions: new Set() };
 }
 
 export function issueLoginCode(auth: AuthState, ttlMs = 5 * 60 * 1000): string {
@@ -57,6 +59,15 @@ export function requirePairingToken(auth: AuthState): MiddlewareHandler {
   return async (c, next) => {
     const token = bearerToken(c);
     if (token !== auth.pairingToken) return c.json({ error: "unauthorized" }, 401);
+    await next();
+  };
+}
+
+/** `/mcp` only: workbench cookies are not accepted so browsers cannot call it cross-site. */
+export function requireMcpToken(auth: AuthState): MiddlewareHandler {
+  return async (c, next) => {
+    const token = bearerToken(c);
+    if (!token || token !== auth.mcpToken) return c.json({ error: "unauthorized" }, 401);
     await next();
   };
 }

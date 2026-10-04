@@ -39,6 +39,7 @@ import { registerAiRoutes } from "./routes/ai.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerDataRoutes } from "./routes/data.js";
 import { registerKbRoutes } from "./routes/kb.js";
+import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerOrganizeRoutes } from "./routes/organize.js";
 import { registerWorkbenchRoutes } from "./routes/workbench.js";
 
@@ -263,6 +264,7 @@ export function createApp(services: AppServices): Hono {
   registerChatRoutes(api, services);
 
   app.route("/v1", api);
+  registerMcpRoutes(app, services);
 
   app.notFound((c) => c.json({ error: "not_found" }, 404));
 
