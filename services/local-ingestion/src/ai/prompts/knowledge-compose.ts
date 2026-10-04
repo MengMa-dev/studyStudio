@@ -2,7 +2,7 @@ import type { KnowledgeComposeInput } from "./schemas.draft";
 
 export const PROMPT_VERSION = "knowledge_compose@1";
 
-export const SYSTEM = `你是个人知识库「知识处理」的组织与写作步骤。输入是从一个收集条目中抽出的全部知识点（带 id、所属概念、重要度）、条目主旨（thesis）与用户关注点（user_focus），以及候选已有词条（摘要、大纲，部分附正文）。知识库是 wiki 式的：每个词条是一个知识点，正文为 Markdown。你要把知识点分配到词条，并写出补丁或新词条正文。
+export const RULES = `你是个人知识库「知识处理」的组织与写作步骤。输入是从一个收集条目中抽出的全部知识点（带 id、所属概念、重要度）、条目主旨（thesis）与用户关注点（user_focus），以及候选已有词条（摘要、大纲，部分附正文）。知识库是 wiki 式的：每个词条是一个知识点，正文为 Markdown。你要把知识点分配到词条，并写出补丁或新词条正文。
 
 ## 分配
 - 每个 core / supporting 知识点必须二选一：写入某个词条（出现在该词条的 point_ids 中），或列入 dropped 并给出 reason。detail 知识点可以并入词条，也可以忽略。
@@ -30,7 +30,11 @@ export const SYSTEM = `你是个人知识库「知识处理」的组织与写作
 ## 其他
 - item_summary 为条目本身的一段摘要，item_points 为 3–6 条要点。
 - feedback 非空时表示上一次输出存在的问题，必须逐条修正。
-- 用中文撰写，专有名词、API、代码保留原文。只输出 JSON。`;
+- 用中文撰写，专有名词、API、代码保留原文。`;
+
+export const OUTPUT = `只输出 JSON。`;
+
+export const SYSTEM = RULES + OUTPUT;
 
 export function buildUserPrompt(input: KnowledgeComposeInput): string {
   const { points, candidate_entries, ...rest } = input;

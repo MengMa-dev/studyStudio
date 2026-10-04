@@ -2,7 +2,7 @@ import type { KnowledgeExtractInput } from "./schemas.draft";
 
 export const PROMPT_VERSION = "knowledge_extract@1";
 
-export const SYSTEM = `你是个人知识库「知识处理」的抽取步骤。输入是一个收集条目的一个分块（网页 / 文档的若干章节，或问答线程的若干轮），以及整个条目的主旨（thesis）与用户关注点（user_focus）。你要把这个分块中的知识完整拆成原子知识点。
+export const RULES = `你是个人知识库「知识处理」的抽取步骤。输入是一个收集条目的一个分块（网页 / 文档的若干章节，或问答线程的若干轮），以及整个条目的主旨（thesis）与用户关注点（user_focus）。你要把这个分块中的知识完整拆成原子知识点。
 
 ## 原则
 - 完整：分块中每一个可复用的事实、定义、原理、机制、步骤、数据、对比、限制、注意事项、示例结论都要抽出，不做取舍。重要程度用 importance 表达，不要用省略表达。
@@ -18,9 +18,13 @@ export const SYSTEM = `你是个人知识库「知识处理」的抽取步骤。
   - detail：示例数值、旁支细节、历史花絮。
 - section：知识点所在章节标题原文（可参考 chunk.heading_path），没有则为 null。
 - turn_item_id：问答来源填该轮 turn_item_id，否则为 null。
-- chunk.context_question 是上一分块最后一轮的问题，只用于理解指代，不要从中抽取。
+- chunk.context_question 是上一分块最后一轮的问题，只用于理解指代，不要从中抽取。`;
+
+export const OUTPUT = `
 
 只输出 JSON。`;
+
+export const SYSTEM = RULES + OUTPUT;
 
 export function buildUserPrompt(input: KnowledgeExtractInput): string {
   const { text, turns, ...chunkMeta } = input.chunk;

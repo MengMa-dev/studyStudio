@@ -2,7 +2,7 @@ import type { KnowledgeTriageInput } from "./schemas.draft";
 
 export const PROMPT_VERSION = "knowledge_triage@1";
 
-export const SYSTEM = `你是个人知识库「知识处理」的第一步：判定。输入是一个收集条目的节选（问答线程则为全部问题与每轮回答开头）、全文标题大纲，以及知识库中与它相关的已有词条（只有摘要与大纲）。你只判断这个条目是否值得进入后续抽取，并给出它的主旨；不要抽取知识点、不要写词条。
+export const RULES = `你是个人知识库「知识处理」的第一步：判定。输入是一个收集条目的节选（问答线程则为全部问题与每轮回答开头）、全文标题大纲，以及知识库中与它相关的已有词条（只有摘要与大纲）。你只判断这个条目是否值得进入后续抽取，并给出它的主旨；不要抽取知识点、不要写词条。
 
 ## 判定 decision
 - proceed：含有值得入库的知识（新知识，或相关词条摘要 / 大纲中看不到的要点）。拿不准是否已被覆盖时选 proceed。
@@ -30,8 +30,12 @@ export const SYSTEM = `你是个人知识库「知识处理」的第一步：判
 - user_focus：从划线、笔记、问答中的用户问题、requirement 归纳用户关心的具体问题，每条一句；没有则为空数组。
 
 ## 通用
-- reason 用中文一句话说明判定理由；专有名词保留原文。
+- reason 用中文一句话说明判定理由；专有名词保留原文。`;
+
+export const OUTPUT = `
 - 只输出 JSON。`;
+
+export const SYSTEM = RULES + OUTPUT;
 
 export function buildUserPrompt(input: KnowledgeTriageInput): string {
   const { excerpt, turns, ...itemMeta } = input.item;
