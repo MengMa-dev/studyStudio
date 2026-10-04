@@ -12,3 +12,4 @@ export * from "./api/kb";
 export * from "./api/organize";
 export * from "./api/ai";
 export * from "./api/chat";
+export * from "./api/agent";

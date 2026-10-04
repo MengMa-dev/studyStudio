@@ -35,6 +35,7 @@ import {
 } from "./auth.js";
 import { createKbRegistryTrashHandler, KB_TRASH_KIND } from "../domains/kb/trash.js";
 import { registerTrashHandler } from "../domains/trash/registry.js";
+import { registerAgentRoutes } from "./routes/agent.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerDataRoutes } from "./routes/data.js";
@@ -60,6 +61,8 @@ export type AppServices = {
   aiConfig?: SqliteAiConfigStore;
   /** Background chunks / FTS / vector upkeep; enqueue after entry writes. */
   chunkIndexer?: ChunkIndexer;
+  /** Where agent skills are installed (`~/.cursor/skills/…`); defaults to `os.homedir()`. */
+  homeDir?: string;
 };
 
 export function createApp(services: AppServices): Hono {
@@ -262,6 +265,7 @@ export function createApp(services: AppServices): Hono {
   registerOrganizeRoutes(api, services);
   registerKbRoutes(api, services);
   registerChatRoutes(api, services);
+  registerAgentRoutes(api, services);
 
   app.route("/v1", api);
   registerMcpRoutes(app, services);

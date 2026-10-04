@@ -54,6 +54,7 @@ import {
   type PatchNoteRequest
 } from "@study-studio/shared";
 
+import { realAgentApi } from "./agent";
 import { realAiApi } from "./ai";
 import { realChatApi } from "./chat";
 import { qs, request } from "./http";
@@ -65,6 +66,7 @@ export const realApi = {
   ...realOrganizeApi,
   ...realAiApi,
   ...realChatApi,
+  ...realAgentApi,
 
   async getHomeSummary() {
     return request(HOME_API.summary, undefined, homeSummaryResponseSchema);

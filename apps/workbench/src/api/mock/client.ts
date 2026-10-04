@@ -58,6 +58,7 @@ import {
   type PatchNoteRequest
 } from "@study-studio/shared";
 
+import { mockAgentApi, resetMockAgentState } from "./agent";
 import { mockAiApi, resetMockAiState } from "./ai";
 import { mockChatApi, resetMockChatState } from "./chat";
 import { mockKbApi, resetMockKbState } from "./kb";
@@ -72,6 +73,7 @@ export function resetMockState(): void {
   resetMockOrganizeState();
   resetMockAiState();
   resetMockChatState();
+  resetMockAgentState();
 }
 
 export function getMockState(): MockState {
@@ -183,6 +185,7 @@ export const mockApi = {
   ...mockOrganizeApi,
   ...mockAiApi,
   ...mockChatApi,
+  ...mockAgentApi,
 
   async getHomeSummary() {
     refreshDerived();
