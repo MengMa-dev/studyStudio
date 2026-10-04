@@ -37,7 +37,8 @@ export const TRIGGER_LABEL: Record<OrganizeTrigger, string> = {
   batch: "攒够数量",
   on_ingest: "入箱即整理",
   catch_up: "补跑",
-  retry: "重试"
+  retry: "重试",
+  agent: "Agent"
 };
 
 export const SCOPE_LABEL: Record<OrganizeScope, string> = {

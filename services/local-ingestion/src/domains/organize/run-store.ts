@@ -110,8 +110,11 @@ export function updateRun(
   db.prepare(`UPDATE organize_runs SET ${sets.join(", ")} WHERE id = ?`).run(...values, id);
 }
 
-/** Interrupted runs (crash / shutdown) go back to the queue; finished jobs are skipped by `input_hash`. */
+/** Interrupted runs (crash / shutdown) go back to the queue; finished jobs are skipped by `input_hash`. Agent sessions cannot resume and are finished. */
 export function requeueInterruptedRuns(db: DatabaseSync): number {
+  db.prepare("UPDATE organize_runs SET status = 'completed', finished_at = ?, progress = NULL WHERE status = 'running' AND trigger = 'agent'").run(
+    new Date().toISOString()
+  );
   return Number(db.prepare("UPDATE organize_runs SET status = 'queued' WHERE status = 'running'").run().changes);
 }
 

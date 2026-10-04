@@ -6,6 +6,7 @@ import { SqliteUsageStore } from "../ai/sqlite-stores.js";
 import { utcDay } from "../ai/stores.js";
 import type { AppDatabase } from "../db/database.js";
 import type { OrganizeRunRow } from "../db/types.js";
+import { expireIdleAgentRuns, runningAgentRun } from "../domains/agent/session.js";
 import { executeRun, OrganizeAbortedError } from "../domains/organize/pipeline.js";
 import {
   activeRuns,
@@ -124,7 +125,7 @@ export class OrganizeWorker {
     requeueInterruptedRuns(this.db);
     this.reschedule();
     this.crons.push(new Cron(RESUME_CRON, { protect: true }, () => this.resumePausedRuns()));
-    this.poll = setInterval(() => this.checkTriggers(), this.options.pollIntervalMs ?? DEFAULT_POLL_MS);
+    this.poll = setInterval(() => this.tick(), this.options.pollIntervalMs ?? DEFAULT_POLL_MS);
     this.poll.unref?.();
     this.resumePausedRuns();
     this.catchUp();
@@ -248,6 +249,13 @@ export class OrganizeWorker {
     else if (settings.triggers.onIngest.enabled && fresh > 0) this.enqueueAuto("on_ingest");
   }
 
+  /** Poll heartbeat: releases idle agent sessions, then checks triggers and resumes runs waiting on a session. */
+  tick(): void {
+    expireIdleAgentRuns(this.db, this.now());
+    this.checkTriggers();
+    this.kick();
+  }
+
   /** Missed daily schedule while the service was down → one catch-up run. */
   catchUp(): void {
     const settings = readOrganizeSettings(this.db);
@@ -281,8 +289,13 @@ export class OrganizeWorker {
     if (this.loop || this.stopping) return;
     this.loop = this.drain().finally(() => {
       this.loop = null;
-      if (!this.stopping && nextQueuedRun(this.db)) this.kick();
+      if (!this.stopping && this.nextRun()) this.kick();
     });
+  }
+
+  /** Queued runs wait while an agent session is running. */
+  private nextRun(): OrganizeRunRow | null {
+    return runningAgentRun(this.db) ? null : nextQueuedRun(this.db);
   }
 
   /** Resolves when the queue is empty (tests / shutdown). */
@@ -291,7 +304,7 @@ export class OrganizeWorker {
   }
 
   private async drain(): Promise<void> {
-    for (let run = nextQueuedRun(this.db); run && !this.stopping; run = nextQueuedRun(this.db)) {
+    for (let run = this.nextRun(); run && !this.stopping; run = this.nextRun()) {
       await this.process(run);
     }
   }

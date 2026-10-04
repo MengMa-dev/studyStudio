@@ -3,7 +3,7 @@ import { z } from "zod";
 import { organizeSettingsSchema } from "../settings";
 import { inboxItemTypeSchema } from "./inbox";
 
-export const organizeTriggerSchema = z.enum(["manual", "daily", "batch", "on_ingest", "catch_up", "retry"]);
+export const organizeTriggerSchema = z.enum(["manual", "daily", "batch", "on_ingest", "catch_up", "retry", "agent"]);
 export type OrganizeTrigger = z.infer<typeof organizeTriggerSchema>;
 
 /**
