@@ -1,0 +1,164 @@
+{
+  "task": "knowledge_compose",
+  "promptVersion": "knowledge_compose@1",
+  "inputHash": "54d8627952d715f3fba7ff32e30810278093e3c7d68b4d3d7435aa1a6e44d88d",
+  "provider": "openrouter",
+  "model": "nvidia/nemotron-3-super-120b-a12b:free",
+  "input": {
+    "step": "compose",
+    "mode": "normal",
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_effective_agents",
+      "type": "webpage",
+      "source_kind": "blog",
+      "title": "Building effective agents - Anthropic",
+      "thesis": "理解 Agent 系统的常见编排模式",
+      "user_focus": [],
+      "requirement": null
+    },
+    "points": [
+      {
+        "id": "p1",
+        "statement": "We draw an architectural distinction between workflows and agents. Workflows are systems where LLMs and tools are orchestrated through predefined code paths. Agents, on the other hand, are systems where LLMs dynamically direct their own processes and tool usage, maintaining control over how they accomplish tasks.",
+        "concept": "工作流 vs 智能体",
+        "importance": "core",
+        "section": null
+      },
+      {
+        "id": "p2",
+        "statement": "When building applications with LLMs, we recommend finding the simplest solution possible, and only increasing complexity when needed. This might mean not building agentic systems at all. Agentic systems often trade latency and cost for better task performance. Workflows offer predictability and consistency for well-defined tasks, whereas agents are the better option when flexibility and model-driven decision-making are needed at scale.",
+        "concept": "何时使用智能体",
+        "importance": "core",
+        "section": null
+      },
+      {
+        "id": "p3",
+        "statement": "The basic building block is an LLM enhanced with augmentations such as retrieval, tools, and memory.",
+        "concept": "增强型 LLM",
+        "importance": "core",
+        "section": null
+      },
+      {
+        "id": "p4",
+        "statement": "Prompt chaining decomposes a task into a sequence of steps, where each LLM call processes the output of the previous one. You can add programmatic checks (gate) on intermediate steps.",
+        "concept": "工作流编排模式",
+        "importance": "core",
+        "section": null
+      },
+      {
+        "id": "p5",
+        "statement": "Routing classifies an input and directs it to a specialized followup task.",
+        "concept": "工作流编排模式",
+        "importance": "core",
+        "section": null
+      },
+      {
+        "id": "p6",
+        "statement": "A central LLM dynamically breaks down tasks, delegates them to worker LLMs, and synthesizes their results.",
+        "concept": "工作流编排模式",
+        "importance": "core",
+        "section": null
+      }
+    ],
+    "candidate_entries": [
+      {
+        "entry_id": "kb_agent_loop",
+        "name": "Agent Loop",
+        "aliases": ["智能体循环"],
+        "kind": "pattern",
+        "summary": "LLM 在循环中根据观察结果决定下一步动作（调用工具或结束），直到完成任务。",
+        "outline": ["## 定义", "## 基本流程"],
+        "body_markdown": "## 定义\nLLM 在循环中根据上一步的观察结果决定下一步动作，直到完成任务或达到步数上限。\n## 基本流程\n1. 模型决定调用哪个工具\n2. 程序执行工具并把结果返回给模型\n3. 重复直到模型给出最终回答"
+      }
+    ],
+    "neighbor_entries": [{ "entry_id": "kb_function_calling", "name": "Function Calling", "aliases": ["工具调用"] }],
+    "ignored_names": [],
+    "categories": ["Agent 框架", "RAG", "前端工程", "LLM 基础"],
+    "kinds": ["概念", "方法", "算法", "模型", "论文", "工具", "库与框架", "设计模式", "最佳实践", "其他"],
+    "feedback": null
+  },
+  "output": {
+    "item_summary": "理解 Agent 系统的常见编排模式",
+    "item_points": ["工作流 vs 智能体", "何时使用智能体", "增强型 LLM", "提示链", "路由", "Orchestrator‑Workers"],
+    "concepts": [
+      {
+        "name": "工作流 vs 智能体",
+        "match": "new",
+        "aliases": [],
+        "kind": "概念",
+        "point_ids": ["p1"],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "区分工作流与智能体的架构特点",
+        "body_markdown": "## 工作流 vs 智能体\n工作流是指 LLMs 和工具通过预定义的代码路径进行编排的系统；智能体则是 LLMs 动态指导自身的流程和工具使用，保持对任务完成方式的控制。",
+        "completeness": { "covered": ["工作流 vs 智能体"], "missing": [] }
+      },
+      {
+        "name": "何时使用智能体",
+        "match": "new",
+        "aliases": [],
+        "kind": "概念",
+        "point_ids": ["p2"],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "决定是否构建智能体系统的指导原则",
+        "body_markdown": "## 何时使用智能体\n构建 LLM 应用时应寻找最简单的方案，仅在必要时增加复杂度。智能体系统在延迟和成本上可能付出代价，以换取更好的任务表现；工作流在明确定义的任务上提供可预测性和一致性；当需要大规模的灵活性和模型驱动决策时，智能体更合适。",
+        "completeness": { "covered": ["何时使用智能体"], "missing": [] }
+      },
+      {
+        "name": "增强型 LLM",
+        "match": "new",
+        "aliases": [],
+        "kind": "概念",
+        "point_ids": ["p3"],
+        "patch": null,
+        "category": "LLM 基础",
+        "summary": "具备检索、工具、记忆等功能的 LLM 作为基本构建块",
+        "body_markdown": "## 增强型 LLM\n基本构建块是具备检索、工具、记忆等增强功能的 LLM。",
+        "completeness": { "covered": ["增强型 LLM"], "missing": [] }
+      },
+      {
+        "name": "工作流编排模式",
+        "match": "new",
+        "aliases": [],
+        "kind": "设计模式",
+        "point_ids": ["p4", "p5", "p6"],
+        "patch": null,
+        "category": "Agent 框架",
+        "summary": "描述常见的工作流编排模式：提示链、路由、Orchestrator‑Workers",
+        "body_markdown": "## 工作流编排模式\n### 提示链（Prompt chaining)\n将任务分解为一系列步骤，每次 LLM 调用处理前一步的输出，可在中间步骤加入程序化检查（gate）。\n### 路由（Routing）\n根据输入进行分类，将其导向专门的后续任务。\n### Orchestrator‑Workers\n中央 LLM 动态拆解任务，分配给工作器 LLM，并综合其结果。",
+        "completeness": { "covered": ["提示链", "路由", "Orchestrator‑Workers"], "missing": [] }
+      },
+      {
+        "name": "Agent Loop",
+        "match": "kb_agent_loop",
+        "aliases": ["智能体循环"],
+        "kind": "模式",
+        "point_ids": ["p0"],
+        "patch": {
+          "ops": [
+            {
+              "op": "append_to_section",
+              "section": "## 基本流程",
+              "markdown": "\n4. 观察工具执行结果，更新模型的上下文。\n5. 根据新的观察决定是否继续循环或给出最终回答。\n"
+            }
+          ],
+          "summary": null,
+          "completeness": { "covered": ["基本流程"], "missing": ["错误处理", "超时机制"] }
+        },
+        "category": "Agent 框架",
+        "summary": "LLM 在循环中根据观察结果决定下一步动作（调用工具或结束），直到完成任务。",
+        "body_markdown": "## 定义\nLLM 在循环中根据上一步的观察结果决定下一步动作，直到完成任务或达到步数上限。\n## 基本流程\n1. 模型决定调用哪个工具\n2. 程序执行工具并把结果返回给模型\n3. 重复直到模型给出最终回答\n4. 观察工具执行结果，更新模型的上下文。\n5. 根据新的观察决定是否继续循环或给出最终回答。",
+        "completeness": { "covered": ["定义", "基本流程"], "missing": [] }
+      }
+    ],
+    "relations": [
+      { "from": "Agent Loop", "to": "工作流 vs 智能体", "type": "related", "description": null },
+      { "from": "Agent Loop", "to": "工作流编排模式", "type": "related", "description": null }
+    ],
+    "dropped": []
+  },
+  "usage": { "inputTokens": 1964, "outputTokens": 3750, "totalTokens": 5714, "durationMs": 26180 },
+  "recordedAt": "2026-10-04T16:35:58.903Z"
+}

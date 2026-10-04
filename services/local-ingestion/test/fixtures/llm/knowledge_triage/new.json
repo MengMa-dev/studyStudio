@@ -1,0 +1,53 @@
+{
+  "task": "knowledge_triage",
+  "promptVersion": "knowledge_triage@1",
+  "inputHash": "c036fc6a3382eab5b5e7adf4c22c3751de977bfe53b55e02ee4ffa2779c4bda5",
+  "provider": "ollama",
+  "model": "qwen3:4b-instruct",
+  "input": {
+    "step": "triage",
+    "mode": "normal",
+    "episode": { "episode_id": "ep_20261002_2130", "topic": "MCP", "learning_goal": "了解 Model Context Protocol 的定位与架构", "uncertain": false },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_mcp_intro",
+      "type": "webpage",
+      "source_kind": "official_doc",
+      "title": "Introduction - Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/introduction",
+      "user_highlights": [],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "medium",
+      "outline": ["## What is MCP?", "## Why MCP?", "## General architecture", "## Get started"],
+      "excerpt": "## What is MCP?\nMCP (Model Context Protocol) is an open protocol that standardizes how applications provide context to LLMs. Think of MCP like a USB-C port for AI applications: just as USB-C provides a standardized way to connect devices to peripherals, MCP provides a standardized way to connect AI models to different data sources and tools.\n## Why MCP?\nMCP helps you build agents and complex workflows on top of LLMs. It provides a growing list of pre-built integrations your LLM can directly plug into, the flexibility to switch between LLM providers, and best practices for securing your data within your infrastructure.\n## General architecture\nMCP follows a client-server architecture where a host application can connect to multiple servers. MCP Hosts are programs like Claude Desktop or IDEs that want to access data through MCP. MCP Clients maintain 1:1 connections with servers. MCP Servers are lightweight programs that each expose specific capabilities (resources, tools, prompts) through the standardized protocol.\n## Get started\nChoose the path that best fits your needs: quickstart for server developers, client developers, or Claude Desktop users."
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_function_calling",
+        "name": "Function Calling",
+        "aliases": ["工具调用", "tool use"],
+        "kind": "concept",
+        "summary": "模型按 JSON Schema 输出函数名与参数，由程序执行函数并把结果返回给模型。",
+        "similarity": 0.63,
+        "recency_relevance": 0.55,
+        "outline": ["## 定义", "## 流程"]
+      }
+    ],
+    "ignored_names": []
+  },
+  "output": {
+    "item_id": "item_mcp_intro",
+    "value_score": 0.85,
+    "reason": "条目清晰阐述了MCP的定位、核心价值与架构设计，与学习者关注的Agent架构主题高度相关，且提供了标准化连接AI模型与工具的原理，属于可复用的系统级概念，具有明确的原理性与架构性内容。",
+    "reject_reason": null,
+    "target_entry_ids": [],
+    "duplicate_quotes": [],
+    "thesis": "MCP是一个标准化协议，旨在为AI模型提供统一接口以接入数据源和工具，其通过客户端-服务器架构实现灵活、安全的模型与外部资源交互。",
+    "user_focus": [],
+    "decision": "proceed"
+  },
+  "usage": { "inputTokens": 1216, "outputTokens": 169, "totalTokens": 1385, "durationMs": 272630 },
+  "recordedAt": "2026-10-04T16:02:38.681Z"
+}

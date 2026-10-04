@@ -1,0 +1,80 @@
+{
+  "task": "knowledge_triage",
+  "promptVersion": "knowledge_triage@1",
+  "inputHash": "d70e46570389402a68fbe2279f750c1b3dc4d55615a5f64b47ec10b8ad43688f",
+  "provider": "ollama",
+  "model": "qwen3:4b-instruct",
+  "input": {
+    "step": "triage",
+    "mode": "normal",
+    "episode": {
+      "episode_id": "ep_20261002_2000",
+      "topic": "LangGraph",
+      "learning_goal": "理解 interrupt、checkpoint 与 human-in-the-loop 的关系",
+      "uncertain": false
+    },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_B",
+      "type": "conversation",
+      "source_kind": "ai_answer",
+      "title": "ChatGPT：checkpoint 和 interrupt 有什么区别？",
+      "user_highlights": [],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "strong",
+      "outline": [],
+      "turns": [
+        {
+          "turn_item_id": "item_B",
+          "turn_index": 1,
+          "question": "checkpoint 和 interrupt 有什么区别？",
+          "answer": "两者解决的问题不同：checkpoint 是持久化机制，LangGraph 在每个 super-step 结束后把图状态存成快照；interrupt 是控制流机制，在节点内调用 interrupt() 会暂停执行、把一个值抛给调用方等待人工输入。interrupt 依赖 checkpoint：没有 checkpointer 时暂停后的状态无处保存，也就无法恢复。"
+        },
+        {
+          "turn_item_id": "item_B2",
+          "turn_index": 2,
+          "question": "interrupt 恢复时状态从哪里读？",
+          "answer": "从 checkpointer 中读取：用同一个 thread_id 调用 graph.invoke(Command(resume=value), config)，LangGraph 会加载该 thread 最新的 checkpoint，从被中断的节点重新开始执行，此时 interrupt() 返回 resume 传入的值。注意该节点会从头重新执行，interrupt() 之前的代码会再跑一遍。"
+        }
+      ]
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_checkpoint",
+        "name": "Checkpoint",
+        "aliases": ["检查点", "checkpointer"],
+        "kind": "concept",
+        "summary": "LangGraph 在每个 super-step 结束时保存图状态快照，用于记忆、容错与时间回溯。",
+        "outline": ["## 定义", "## Checkpointer 实现", "## 用途"],
+        "similarity": 0.84,
+        "recency_relevance": 0.72
+      },
+      {
+        "entry_id": "kb_hitl",
+        "name": "Human-in-the-loop",
+        "aliases": ["HITL", "人在回路"],
+        "kind": "concept",
+        "summary": "在 Agent 执行过程中插入人工审批或输入节点，让人参与关键决策。",
+        "outline": ["## 定义", "## 实现方式", "## 常见场景"],
+        "similarity": 0.77,
+        "recency_relevance": 0.7
+      }
+    ],
+    "ignored_names": []
+  },
+  "output": {
+    "item_id": "item_B",
+    "value_score": 0.92,
+    "reason": "条目明确区分了 checkpoint 与 interrupt 的作用机制，并指出 interrupt 依赖 checkpoint 实现状态恢复，补充了中断恢复时状态来源的细节，属于对核心概念间关系的深入解释，具有高价值。",
+    "reject_reason": null,
+    "target_entry_ids": [],
+    "duplicate_quotes": [],
+    "thesis": "checkpoint 负责持久化保存图状态以实现容错和回溯，而 interrupt 实现执行流的暂停与人工干预，其恢复过程依赖 checkpoint 提供的最新状态快照。",
+    "user_focus": ["checkpoint 和 interrupt 的区别", "interrupt 恢复时状态如何读取"],
+    "decision": "proceed"
+  },
+  "usage": { "inputTokens": 1292, "outputTokens": 186, "totalTokens": 1478, "durationMs": 67529 },
+  "recordedAt": "2026-10-04T16:16:00.928Z"
+}

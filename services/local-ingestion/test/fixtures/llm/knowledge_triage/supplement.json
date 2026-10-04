@@ -1,0 +1,68 @@
+{
+  "task": "knowledge_triage",
+  "promptVersion": "knowledge_triage@1",
+  "inputHash": "28a448d32eb8c2ceb6f4e87be6db055592977aaca9d2dd544ddc91ecc8b0486f",
+  "provider": "ollama",
+  "model": "qwen3:4b-instruct",
+  "input": {
+    "step": "triage",
+    "mode": "normal",
+    "episode": {
+      "episode_id": "ep_20261002_2000",
+      "topic": "LangGraph",
+      "learning_goal": "理解 interrupt、checkpoint 与 human-in-the-loop 的关系",
+      "uncertain": false
+    },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_C",
+      "type": "webpage",
+      "source_kind": "official_doc",
+      "title": "Human-in-the-loop - LangGraph Docs",
+      "url": "https://langchain-ai.github.io/langgraph/concepts/human_in_the_loop/",
+      "user_highlights": ["The interrupt() function pauses graph execution at a specific node and surfaces a value to the client"],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "strong",
+      "outline": ["## Overview", "## interrupt", "## Requirements", "## Design patterns", "## Caveats"],
+      "excerpt": "## Overview\nHuman-in-the-loop (HITL) workflows integrate human input into automated processes, allowing for decisions, validation, or corrections at key stages.\n## interrupt\nThe interrupt() function pauses graph execution at a specific node and surfaces a value to the client (e.g. a draft for review). To resume, the client invokes the graph again with Command(resume=value); the value becomes the return value of interrupt() inside the node.\n## Requirements\nHITL requires a checkpointer: graph state is persisted at each step, so a paused run can be resumed later — even after the process restarts — from the saved checkpoint using the same thread_id.\n## Design patterns\nApprove or reject an action; edit graph state; review tool calls; validate human input.\n## Caveats\nWhen resuming, the node containing interrupt() re-executes from the beginning, so side effects before interrupt() run again; place side effects after interrupt() or make them idempotent."
+    },
+    "related_entries": [
+      {
+        "entry_id": "kb_hitl",
+        "name": "Human-in-the-loop",
+        "aliases": ["HITL", "人在回路"],
+        "kind": "concept",
+        "summary": "在 Agent 执行过程中插入人工审批或输入节点，让人参与关键决策。",
+        "outline": ["## 定义", "## 实现方式", "## 常见场景"],
+        "similarity": 0.86,
+        "recency_relevance": 0.7
+      },
+      {
+        "entry_id": "kb_checkpoint",
+        "name": "Checkpoint",
+        "aliases": ["检查点", "checkpointer"],
+        "kind": "concept",
+        "summary": "LangGraph 在每个 super-step 结束时保存图状态快照，用于记忆、容错与时间回溯。",
+        "outline": ["## 定义", "## Checkpointer 实现", "## 用途"],
+        "similarity": 0.71,
+        "recency_relevance": 0.64
+      }
+    ],
+    "ignored_names": []
+  },
+  "output": {
+    "item_id": "item_C",
+    "value_score": 0.92,
+    "reason": "条目详细解释了 human-in-the-loop 中 interrupt 函数的工作机制、与 checkpoint 的依赖关系以及设计模式和注意事项，补充了现有词条中未覆盖的执行流程、resume 机制和副作用处理要点，属于新知识扩展，且与学习目标‘理解 interrupt、checkpoint 与 human-in-the-loop 的关系’直接相关。",
+    "reject_reason": null,
+    "target_entry_ids": [],
+    "duplicate_quotes": [],
+    "thesis": "interrupt 函数通过暂停图执行并返回值给客户端，实现人工介入关键节点，其正确恢复依赖 checkpoint 机制，且需注意副作用在重启时可能重复执行。",
+    "user_focus": ["interrupt 如何暂停执行并让客户端介入", "resume 机制如何工作", "interrupt 与 checkpoint 的关系", "副作用在恢复时是否会被重复执行"],
+    "decision": "proceed"
+  },
+  "usage": { "inputTokens": 1357, "outputTokens": 224, "totalTokens": 1581, "durationMs": 194959 },
+  "recordedAt": "2026-10-04T16:07:11.727Z"
+}

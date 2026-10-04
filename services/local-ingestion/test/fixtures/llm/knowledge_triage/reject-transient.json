@@ -1,0 +1,42 @@
+{
+  "task": "knowledge_triage",
+  "promptVersion": "knowledge_triage@1",
+  "inputHash": "42beb5bfb5b1ef723e84c89262521596cc03b5b2e9fee7b25da84c3a7031ce3f",
+  "provider": "ollama",
+  "model": "qwen3:4b-instruct",
+  "input": {
+    "step": "triage",
+    "mode": "normal",
+    "episode": { "episode_id": "ep_20261002_1500", "topic": "Vite", "learning_goal": "解决本地开发服务器启动报错", "uncertain": false },
+    "learner_profile": { "role": "前端开发", "learning_focus": ["Agent 架构"] },
+    "item": {
+      "item_id": "item_vite_port",
+      "type": "webpage",
+      "source_kind": "community",
+      "title": "Vite dev server: Error: listen EADDRINUSE: address already in use :::5173",
+      "url": "https://stackoverflow.com/questions/vite-eaddrinuse",
+      "user_highlights": [],
+      "user_note": null,
+      "fuzzy_notes": [],
+      "requirement": null,
+      "engagement": "weak",
+      "outline": ["## Question", "## Accepted answer"],
+      "excerpt": "## Question\nRunning npm run dev fails with Error: listen EADDRINUSE: address already in use :::5173.\n## Accepted answer\nAnother process is still using port 5173. Run lsof -i :5173 to find the PID and kill -9 <PID>, or start Vite on another port with npm run dev -- --port 5174."
+    },
+    "related_entries": [],
+    "ignored_names": []
+  },
+  "output": {
+    "item_id": "item_vite_port",
+    "value_score": 0.8,
+    "reason": "该条目提供了解决 Vite 开发服务器端口冲突的具体方法，包含诊断（lsof 命令）和修复方案（更换端口），属于可复用的实用技术知识，与前端开发中的本地开发环境问题直接相关。",
+    "reject_reason": null,
+    "target_entry_ids": [],
+    "duplicate_quotes": [],
+    "thesis": "当 Vite 开发服务器启动时报错 'EADDRINUSE' 时，是由于端口 5173 被其他进程占用，可通过查进程并终止或改用其他端口来解决。",
+    "user_focus": ["如何解决 Vite 启动时报端口占用错误", "如何更换 Vite 的开发服务器端口"],
+    "decision": "proceed"
+  },
+  "usage": { "inputTokens": 956, "outputTokens": 203, "totalTokens": 1159, "durationMs": 53629 },
+  "recordedAt": "2026-10-04T16:12:04.966Z"
+}

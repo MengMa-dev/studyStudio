@@ -1,7 +1,7 @@
 {
   "task": "entry_rewrite",
-  "promptVersion": "entry_rewrite@1",
-  "inputHash": "2f5af750149b3ad13ffda54d5aa555d51569372bbcc844602e3ec08759f6a357",
+  "promptVersion": "entry_rewrite@2",
+  "inputHash": "89fc3f6969f9c8d08434242e6956cbfe683e06c63024a34ca111d0417ddb83e4",
   "provider": "gemini",
   "model": "gemini-3.5-flash-lite",
   "input": {
@@ -18,6 +18,9 @@
     "trigger": "manual",
     "evidence": [
       {
+        "id": "e1",
+        "point": null,
+        "importance": "supporting",
         "item_id": "item_C",
         "source_kind": "official_doc",
         "title": "Human-in-the-loop - LangGraph Docs",
@@ -25,6 +28,9 @@
         "question": null
       },
       {
+        "id": "e2",
+        "point": null,
+        "importance": "supporting",
         "item_id": "item_C",
         "source_kind": "official_doc",
         "title": "Human-in-the-loop - LangGraph Docs",
@@ -32,6 +38,9 @@
         "question": null
       },
       {
+        "id": "e3",
+        "point": null,
+        "importance": "supporting",
         "item_id": "item_C",
         "source_kind": "official_doc",
         "title": "Human-in-the-loop - LangGraph Docs",
@@ -39,6 +48,9 @@
         "question": null
       },
       {
+        "id": "e4",
+        "point": null,
+        "importance": "supporting",
         "item_id": "item_B2",
         "source_kind": "ai_answer",
         "title": "ChatGPT：checkpoint 和 interrupt 有什么区别？",
@@ -46,6 +58,9 @@
         "question": "interrupt 恢复时状态从哪里读？"
       },
       {
+        "id": "e5",
+        "point": null,
+        "importance": "supporting",
         "item_id": "item_hitl_blog",
         "source_kind": "blog",
         "title": "用 LangGraph 做审批流",
@@ -55,16 +70,19 @@
     ],
     "entry_notes": ["希望讲清楚 HITL 和 checkpoint 的关系"],
     "requirement": "按 定义 / 实现 / 恢复与注意事项 / 常见场景 组织",
-    "related_entry_names": ["Checkpoint", "interrupt()", "LangGraph"]
+    "related_entry_names": ["Checkpoint", "interrupt()", "LangGraph"],
+    "feedback": null
   },
   "output": {
-    "body_markdown": "## 定义\n\nHuman-in-the-loop (HITL) 是一种在 Agent 执行过程中引入人工审批或输入节点的机制，确保人类可以参与并控制关键决策。\n\n## 实现与核心机制\n\nHITL 通过在图执行的特定节点暂停，等待外部输入或审批后再继续。在 LangGraph 中，通常使用 interrupt() 函数暂停图执行并向客户端暴露一个值，客户端随后使用 Command(resume=value) 恢复执行。\n\n## 依赖 Checkpoint 持久化\n\nHITL 高度依赖 checkpoint。为了使暂停的运行能够在稍后恢复，图的状态必须在每一步进行持久化。恢复时需通过相同的 thread_id 加载对应状态。\n\n## 恢复与注意事项\n\n当恢复执行时，包含 interrupt() 的节点会从头开始重新执行。因此，在 interrupt() 之前的任何副作用代码都会再次运行，设计时需注意这一点。\n\n## 常见场景\n\n- 工具调用前审批（如发邮件、付款）。\n- 用户修改 Agent 生成的计划或校验输入。\n- 编辑图状态后再继续执行。",
-    "summary": "Human-in-the-loop (HITL) 是一种在 Agent 执行过程中插入人工审批与输入的机制，基于 Checkpoint 与 interrupt() 实现关键决策控制。",
+    "body_markdown": "## 定义\n\nHuman-in-the-loop (HITL) 意为「人在回路」，是指在 Agent 执行过程中插入人工审批或输入节点，让人参与关键决策、确认或修改后再继续。\n\n## 实现与核心机制\n\n在 LangGraph 中，通常使用 `interrupt()` 函数在特定节点暂停图的执行，并将值暴露给客户端。要恢复执行时，客户端使用 `Command(resume=value)` 再次调用图。\n\n## 依赖 checkpoint 持久化\n\nHITL 的正常运作依赖于 Checkpoint 机制：图的状态在每一步都会被持久化，因此暂停的运行可以稍后使用相同的 `thread_id` 从保存的检查点恢复。\n\n## 恢复与注意事项\n\n当通过 `Command(resume=value)` 恢复时，包含 `interrupt()` 的节点会从头重新执行。因此，需要注意将容易产生副作用的操作放在 `interrupt()` 之后，避免重复执行造成影响。\n\n## 常见场景\n\n- 工具调用前审批（如发邮件、付款）。\n- 让用户修改 Agent 生成的计划或校验输入。\n- 编辑图状态后再继续。",
+    "summary": "Human-in-the-loop (HITL) 允许在 Agent 执行过程中插入人工审批或输入节点，基于 Checkpoint 持久化与 interrupt/resume 机制让人参与关键决策。",
     "completeness": {
-      "covered": ["定义", "实现方式与 interrupt() 机制", "与 Checkpoint 的关系", "恢复运行与副作用注意事项", "常见应用场景"],
-      "missing": ["具体的 Python 代码示例"]
-    }
+      "covered": ["HITL 定义", "interrupt() 用法", "checkpoint 与 thread_id 依赖", "重新执行与副作用注意", "常见应用场景"],
+      "missing": ["多轮交互的具体代码示例"]
+    },
+    "covered_ids": ["e1", "e2", "e3", "e5"],
+    "dropped": [{ "id": "e4", "reason": "redundant" }]
   },
-  "usage": { "inputTokens": 1242, "outputTokens": 382, "totalTokens": 1624, "durationMs": 2477 },
-  "recordedAt": "2026-10-02T19:50:14.412Z"
+  "usage": { "inputTokens": 1502, "outputTokens": 470, "totalTokens": 1972, "durationMs": 2414 },
+  "recordedAt": "2026-10-04T16:34:43.429Z"
 }
