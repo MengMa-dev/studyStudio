@@ -82,6 +82,7 @@
 | 手动整理所选条目 / 当前条目（待整理） | 跳过 ②③，从 ④ 开始 | 用户已表达意图，engagement 按 `strong` 处理；仍按会话合并问答（见 ⑤） |
 | 手动整理未采纳条目 | 跳过 ②③，④ 只做检索与近重复检测，⑤ 用采纳模式 | 视为用户确认入库，不提供单独「采纳」按钮；⑤ 的 `decision` 限定为 `new` / `supplement` / `duplicate`，不做价值兜底；记录 `organize_results.override=adopt`，作为后续校准判定的反馈 |
 | 知识点重新整理 | 只执行词条全量重写（见 ⑦） | 用户填写的要求作为知识点备注 |
+| 外部 Agent 整理 | 跳过 ②③④⑤ 的 LLM 调用，由 agent 经 MCP 完成判定、抽取与写作；服务端做引文 / 结构 / 覆盖校验后走 ⑥ | 见 [16](./16-agent-organize-mcp.md)；记录为 `trigger=agent` 的整理记录，`organize_results.route=agent`；与自动整理互斥 |
 
 ## ① 上下文加载（Context Loader）
 

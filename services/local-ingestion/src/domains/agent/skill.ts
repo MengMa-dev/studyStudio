@@ -15,7 +15,7 @@ skillVersion: ${AGENT_SKILL_VERSION}
 3. list_inbox 取一批单元（用 next_cursor 翻页），以返回的 unit_key 逐个处理：
    a. get_unit 读全文分块、用户划线与笔记；
    b. 判定：非学习内容 → not_learning；低价值 / 导航 / 临时 → reject（附 reject_reason）；
-   c. 抽取知识点（按规则，quote 从 chunks 原文逐字摘录，按顺序编号 p1…pn）；
+   c. 抽取知识点（按规则，quote 从 chunks 原文逐字摘录，不含标题后的「[露出:…]」标注，按顺序编号 p1…pn）；
    d. 每个概念 search_kb，必要时 get_entry 对比，决定补充已有词条或新建；
       全部已覆盖 → duplicate；但 has_note / has_highlight 为 true 的单元不能 duplicate，必须 compose（已覆盖的知识点在 compose.dropped 中以 covered 标注）；
    e. list_vocab 选 kind / 分类（优先复用）；

@@ -20,6 +20,8 @@
 | `12-implementation-plan.md` | 本期实施方案：范围、里程碑、验收、风险 | — |
 | `13-chat-implementation-plan.md` | 对话实施方案：范围、里程碑 C1–C6、验收、风险 | — |
 | `14-kb-graph-implementation-plan.md` | 知识图谱 + 动态词条类型：方案、里程碑 G1–G6 | — |
+| `15-organize-multistep.md` | 整理 ⑤ 多轮处理（判定 → 分块抽取 → 对齐写作 → 覆盖校验）与 ⑦ 基于知识点重写 | 做 |
+| `16-agent-organize-mcp.md` | 外部 Agent 整理：本地 `/mcp` 工具 + `organize-kb` skill + 设置页「Agent 接入」 | 做 |
 
 ## 本期范围
 
