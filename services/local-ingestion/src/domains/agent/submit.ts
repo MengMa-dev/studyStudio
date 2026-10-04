@@ -32,6 +32,7 @@ const pointInput = z.object({
   importance: z.enum(POINT_IMPORTANCE),
   turn_item_id: z.string().nullable()
 });
+export const submitPointsSchema = z.array(pointInput).min(1);
 
 export const submitDecisionSchema = z.discriminatedUnion("decision", [
   z.object({
@@ -42,7 +43,7 @@ export const submitDecisionSchema = z.discriminatedUnion("decision", [
     reason: z.string(),
     thesis: z.string(),
     /** Ordered; compose refers to them as p1…pn by position. */
-    points: z.array(pointInput).min(1),
+    points: submitPointsSchema,
     compose: knowledgeComposeOutputSchema
   }),
   z.object({

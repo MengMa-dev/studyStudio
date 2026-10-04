@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { knowledgeComposeOutputSchema } from "../../ai/prompts/schemas.draft.js";
 import { estimateTokens } from "../../search/chunk.js";
 import { searchFts } from "../../search/fts.js";
 import { getKbEntryDetail } from "../kb/index.js";
@@ -9,11 +10,14 @@ import { kindVocabulary } from "../organize/kinds.js";
 import { normalizeEntryName } from "../organize/normalize.js";
 import type { WorkUnit } from "../organize/process.js";
 import { NAME_MATCH_SIMILARITY, RetrievalCache, retrieveCandidates } from "../organize/retrieve.js";
+import { getRunRow } from "../organize/run-store.js";
 import { ENTRY_OWNER } from "../organize/runtime-types.js";
+import { rejectReasonSchema } from "../organize/schemas.js";
 import { categoryName, categoryNames, kbIgnoreNames, listAliveEntries, outlineOf, type OrganizeItem } from "../organize/store.js";
 import { AgentToolError } from "./errors.js";
 import { buildGuidelines } from "./guidelines.js";
 import { finishAgentSession, startAgentSession } from "./session.js";
+import { submitDecision, submitDecisionSchema, submitPointsSchema } from "./submit.js";
 import { findUnit, pendingUnits, unitKey } from "./units.js";
 
 /** MCP tool definitions (16). Results are wrapped as `{ ok: true, ...payload }` / `{ ok: false, error, message, details? }`. */
@@ -238,7 +242,33 @@ const finishSessionTool = defineAgentTool({
   handler: async (deps, input) => ({ stats: finishAgentSession(deps.db, input.run_id, input.summary ?? null) })
 });
 
+const submitDecisionTool = defineAgentTool({
+  name: "submit_decision",
+  description:
+    "提交一个单元的整理结果（每单元一次）。decision=compose 需 value_score / thesis / points / compose；duplicate 需 target_entry_ids（划线 / 笔记过的单元不能判 duplicate）；reject 需 reject_reason；not_learning 只需 reason。校验失败不落库，按返回的 error / details 修正后重交。",
+  // MCP clients only see object schemas; the discriminated union is enforced in the handler.
+  input: z.object({
+    run_id: z.string(),
+    unit_key: z.string(),
+    decision: z.enum(["compose", "duplicate", "reject", "not_learning"]),
+    reason: z.string(),
+    value_score: z.number().min(0).max(1).optional(),
+    thesis: z.string().optional(),
+    points: submitPointsSchema.optional(),
+    compose: knowledgeComposeOutputSchema.optional(),
+    target_entry_ids: z.array(z.string()).optional(),
+    evidence: z.array(z.object({ entry_id: z.string(), quote: z.string() })).optional(),
+    reject_reason: rejectReasonSchema.optional()
+  }),
+  handler: async (deps, input) => {
+    const parsed = submitDecisionSchema.safeParse(input);
+    if (!parsed.success) throw new AgentToolError("invalid_input", "参数不符合该 decision 的要求", z.treeifyError(parsed.error));
+    const model = getRunRow(deps.db, input.run_id)?.model ?? "";
+    return submitDecision(deps, parsed.data, model.startsWith("agent:") ? model.slice("agent:".length) : null);
+  }
+});
+
 /** Read + session tools; write tools are appended here. */
 export function agentTools(): AgentTool<any>[] {
-  return [getGuidelinesTool, listInboxTool, getUnitTool, searchKbTool, getEntryTool, listVocabTool, startSessionTool, finishSessionTool];
+  return [getGuidelinesTool, listInboxTool, getUnitTool, searchKbTool, getEntryTool, listVocabTool, startSessionTool, finishSessionTool, submitDecisionTool];
 }

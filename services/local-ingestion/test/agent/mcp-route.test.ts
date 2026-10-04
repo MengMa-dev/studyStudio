@@ -77,10 +77,12 @@ test("tools/list exposes read and session tools", async (t) => {
   assert.equal(res.status, 200);
   const body = (await res.json()) as { result: { tools: Array<{ name: string; inputSchema: { type: string } }> } };
   const names = body.result.tools.map((tool) => tool.name).sort();
-  for (const name of ["get_guidelines", "list_inbox", "get_unit", "search_kb", "get_entry", "list_vocab", "start_session", "finish_session"]) {
+  for (const name of ["get_guidelines", "list_inbox", "get_unit", "search_kb", "get_entry", "list_vocab", "start_session", "finish_session", "submit_decision"]) {
     assert.ok(names.includes(name), name);
   }
   assert.ok(body.result.tools.every((tool) => tool.inputSchema.type === "object"));
+  const submit = body.result.tools.find((tool) => tool.name === "submit_decision") as unknown as { inputSchema: { properties: Record<string, unknown> } };
+  assert.ok(["decision", "points", "compose", "target_entry_ids", "reject_reason"].every((key) => key in submit.inputSchema.properties));
 });
 
 test("read tools", async (t) => {
@@ -139,7 +141,7 @@ test("read tools", async (t) => {
 });
 
 test("session tools", async (t) => {
-  const { call } = setup(t);
+  const { call, env } = setup(t);
   const started = await call("start_session", { client: "test" });
   assert.equal(started.ok, true);
   assert.equal(typeof started.run_id, "string");
@@ -149,6 +151,12 @@ test("session tools", async (t) => {
   assert.equal(busy.ok, false);
   assert.equal(busy.error, "busy");
   assert.equal(busy.details.active_run_id, started.run_id);
+
+  const invalid = await call("submit_decision", { run_id: started.run_id, unit_key: "item_doc", decision: "reject", reason: "x" });
+  assert.equal(invalid.error, "invalid_input");
+  const rejected = await call("submit_decision", { run_id: started.run_id, unit_key: "turn_1", decision: "not_learning", reason: "闲聊" });
+  assert.equal(rejected.ok, true);
+  assert.equal(env.db.prepare("SELECT organize_status FROM items WHERE id = 'turn_1'").get()?.organize_status, "rejected");
 
   const finished = await call("finish_session", { run_id: started.run_id, summary: "done" });
   assert.equal(finished.ok, true);
