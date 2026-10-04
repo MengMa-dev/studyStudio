@@ -422,6 +422,42 @@ test("⑦ stale entry is rewritten from live evidence; missing evidence makes it
   assert.ok(runJobs(env.db, runId).some((job) => job.kind === "entry_rewrite" && job.status === "rewritten"));
 });
 
+test("⑦ rewrite evidence is ranked by importance; uncovered core points trigger one feedback retry", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  seedLangGraphKb(env);
+  insertItem(env.db, { id: "item_B", type: "conversation", title: "checkpoint 和 interrupt", capturedAt: T(1), markdown: "answer", status: "ingested" });
+  insertSource(env.db, "kb_checkpoint", "item_B", []);
+  env.db.prepare("UPDATE kb_entry_sources SET evidence = ? WHERE entry_id = 'kb_checkpoint' AND item_id = 'item_B'").run(
+    JSON.stringify([
+      { quote: "thread_id 区分会话", importance: "detail" },
+      { quote: "interrupt 依赖 checkpoint", point: "interrupt 需要 checkpointer 才能恢复", importance: "core" },
+      { quote: "legacy quote" }
+    ])
+  );
+  const stale = output("entry_rewrite", "stale");
+  const { gateway, prompts } = createReplayGateway([
+    replay.rewrite("kb_checkpoint", { ...stale, covered_ids: ["e2"], dropped: [] }, (input) => !input.feedback),
+    replay.rewrite("kb_checkpoint", { ...stale, covered_ids: ["e1", "e2"], dropped: [] })
+  ]);
+
+  await runPipeline(env, gateway, { scope: "entry", entryIds: ["kb_checkpoint"] });
+
+  const calls = prompts.filter((call) => (call.input as { entry?: { entry_id: string } }).entry?.entry_id === "kb_checkpoint");
+  assert.equal(calls.length, 2);
+  const first = calls[0]!.input as { evidence: Array<{ id: string; importance: string; point: string | null }> };
+  assert.deepEqual(
+    first.evidence.map((item) => [item.id, item.importance, item.point]),
+    [
+      ["e1", "core", "interrupt 需要 checkpointer 才能恢复"],
+      ["e2", "supporting", null],
+      ["e3", "detail", null]
+    ]
+  );
+  assert.match(String((calls[1]!.input as { feedback: string[] }).feedback), /e1/);
+  assert.ok(String(entry(env.db, "kb_checkpoint")!.body_markdown).includes("MemorySaver"));
+});
+
 test("⑦ manual rewrite of a user_edited entry appends 重写建议 instead of overwriting", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());

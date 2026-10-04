@@ -62,7 +62,11 @@ export const replay = {
   extract: stepRule("extract"),
   compose: stepRule("compose"),
   rewrite(entryId: string, out: unknown, when: (input: Input) => boolean = () => true): MockRule {
-    return { match: ({ input }) => (input as Input)?.entry?.entry_id === entryId && "evidence" in (input as Input) && when(input as Input), output: out };
+    return {
+      match: ({ input }) => (input as Input)?.entry?.entry_id === entryId && "evidence" in (input as Input) && when(input as Input),
+      // Recorded entry_rewrite@1 outputs predate coverage; default to "everything covered".
+      output: { covered_ids: Array.from({ length: 100 }, (_, index) => `e${index + 1}`), dropped: [], ...(out as object) }
+    };
   }
 };
 

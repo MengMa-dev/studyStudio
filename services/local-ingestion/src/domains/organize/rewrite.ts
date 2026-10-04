@@ -1,7 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { PROMPTS } from "../../ai/prompts/index.js";
-import { SOURCE_KINDS, type EntryRewriteInput } from "../../ai/prompts/schemas.draft.js";
+import { SOURCE_KINDS, type EntryRewriteInput, type EntryRewriteOutput, type PointImportance } from "../../ai/prompts/schemas.draft.js";
 import { withTransaction } from "../../db/database.js";
+import { estimateTokens } from "../../search/chunk.js";
 import { normalizeKind } from "../kb/queries.js";
 import { callLlm, type LlmContext } from "./llm.js";
 import { applyPatchOps } from "./patch.js";
@@ -13,7 +14,8 @@ import type { StoredEvidence } from "./integrate.js";
 export const REWRITE_PROMPT_VERSION = PROMPTS.entry_rewrite.version;
 
 const SOURCE_RELIABILITY: Record<string, number> = { official_doc: 0, repo: 1, community: 2, blog: 3, other: 4, ai_answer: 5 };
-const MAX_EVIDENCE = 60;
+const IMPORTANCE_RANK: Record<PointImportance, number> = { core: 0, supporting: 1, detail: 2 };
+const REWRITE_EVIDENCE_TOKENS = 16_000;
 
 /**
  * Marks entries `stale` when a source item was deleted after the entry's last update (missing items count as deleted).
@@ -38,6 +40,7 @@ export function staleEntryIds(db: DatabaseSync): string[] {
 
 type EvidenceRow = { item_id: string; evidence: string | null; source_kind: string | null; title: string | null };
 
+/** Live evidence as knowledge points: core first, then by source reliability, cut at REWRITE_EVIDENCE_TOKENS. */
 export function liveEvidence(db: DatabaseSync, entryId: string): EntryRewriteInput["evidence"] {
   const rows = db
     .prepare(
@@ -45,7 +48,7 @@ export function liveEvidence(db: DatabaseSync, entryId: string): EntryRewriteInp
        WHERE s.entry_id = ? AND i.deleted_at IS NULL`
     )
     .all(entryId) as EvidenceRow[];
-  const evidence: EntryRewriteInput["evidence"] = [];
+  const evidence: Array<Omit<EntryRewriteInput["evidence"][number], "id">> = [];
   for (const row of rows) {
     const kind = (SOURCE_KINDS as readonly string[]).includes(row.source_kind ?? "")
       ? (row.source_kind as EntryRewriteInput["evidence"][number]["source_kind"])
@@ -56,12 +59,30 @@ export function liveEvidence(db: DatabaseSync, entryId: string): EntryRewriteInp
         item_id: item.turnItemId ?? row.item_id,
         source_kind: kind,
         title: row.title ?? row.item_id,
+        point: item.point ?? null,
+        importance: item.importance ?? "supporting",
         quote: item.quote,
         question: item.question ?? null
       });
     }
   }
-  return evidence.sort((a, b) => (SOURCE_RELIABILITY[a.source_kind] ?? 9) - (SOURCE_RELIABILITY[b.source_kind] ?? 9)).slice(0, MAX_EVIDENCE);
+  evidence.sort(
+    (a, b) => IMPORTANCE_RANK[a.importance] - IMPORTANCE_RANK[b.importance] || (SOURCE_RELIABILITY[a.source_kind] ?? 9) - (SOURCE_RELIABILITY[b.source_kind] ?? 9)
+  );
+  const kept: EntryRewriteInput["evidence"] = [];
+  let used = 0;
+  for (const item of evidence) {
+    used += estimateTokens(`${item.point ?? ""}${item.quote}`);
+    if (used > REWRITE_EVIDENCE_TOKENS && kept.length > 0) break;
+    kept.push({ id: `e${kept.length + 1}`, ...item });
+  }
+  return kept;
+}
+
+/** core / supporting evidence neither covered nor dropped. */
+export function missingEvidence(input: EntryRewriteInput, output: EntryRewriteOutput): EntryRewriteInput["evidence"] {
+  const accounted = new Set([...output.covered_ids, ...output.dropped.map((item) => item.id)]);
+  return input.evidence.filter((item) => item.importance !== "detail" && !accounted.has(item.id));
 }
 
 function relatedNames(db: DatabaseSync, entryId: string): string[] {
@@ -91,7 +112,8 @@ export function buildRewriteInput(db: DatabaseSync, entry: EntryRecord, trigger:
     evidence: liveEvidence(db, entry.id),
     entry_notes: entryNotes(db, entry.id).map((note) => note.text),
     requirement,
-    related_entry_names: relatedNames(db, entry.id)
+    related_entry_names: relatedNames(db, entry.id),
+    feedback: null
   };
 }
 
@@ -113,15 +135,25 @@ export async function rewriteEntry(
     return { status: "orphaned", entry: loadEntry(db, entryId) };
   }
   const prompt = PROMPTS.entry_rewrite;
-  const { object } = await callLlm(llm, {
-    stage: "entry_rewrite",
-    task: "entry_rewrite",
-    schema: prompt.outputSchema(input),
-    system: prompt.system,
-    prompt: prompt.buildUserPrompt(input),
-    promptVersion: prompt.version,
-    input
-  });
+  const call = async (payload: EntryRewriteInput) =>
+    (
+      await callLlm(llm, {
+        stage: "entry_rewrite",
+        task: prompt.task,
+        schema: prompt.outputSchema(payload),
+        system: prompt.system,
+        prompt: prompt.buildUserPrompt(payload),
+        promptVersion: prompt.version,
+        input: payload
+      })
+    ).object;
+  let object = await call(input);
+  const missing = missingEvidence(input, object);
+  if (missing.length) {
+    const feedback = [`以下要点未写入正文，也未在 dropped 中说明理由，请补上：${missing.map((item) => `${item.id}「${item.point ?? item.quote}」`).join("；")}`];
+    const retry = await call({ ...input, feedback });
+    if (missingEvidence(input, retry).length < missing.length) object = retry;
+  }
   withTransaction(db, () => {
     const current = loadEntry(db, entryId);
     if (!current) return;
