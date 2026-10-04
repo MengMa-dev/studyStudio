@@ -71,6 +71,7 @@ try {
 
   let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
   await waitFor("hooks", async () => sw(worker, () => Boolean(globalThis.__studyStudio)));
+  await sw(worker, () => globalThis.__studyStudio.setCollecting(true));
   await sw(worker, ([url, pairingToken]) => chrome.storage.local.set({ ingestionUrl: url, pairingToken }), ["http://127.0.0.1:9", token]);
 
   const page = await context.newPage();

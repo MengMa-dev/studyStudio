@@ -1,5 +1,6 @@
 import { DEFAULT_CAPTURE_RULES, type CollectorSettings } from "@study-studio/shared";
 import { loadCachedSettings, readConnection, refreshSettings, writeConnection, apiRequest, FALLBACK_SETTINGS } from "../lib/api";
+import { readCollecting, writeCollecting } from "../lib/collecting";
 import { checkConnectivity, getConnectivity, restoreConnectivity } from "../lib/connectivity";
 import { clearFailed, listFailed, pendingCounts, wasCapturedLocally, type CollectorEvent } from "../lib/db";
 import { detectSearch, isAiConversationUrl, mapTransition, matchesExclusion, resolveCategory, type TabNavState } from "../lib/rules";
@@ -20,6 +21,7 @@ type Message = {
   url?: string;
   ingestionUrl?: string;
   pairingToken?: string;
+  collecting?: boolean;
 };
 
 function rememberAi(ts = Date.now()) {
@@ -86,6 +88,7 @@ async function statusPayload() {
     failedCount: failed.length,
     sync: getSyncProgress(),
     connection,
+    collecting: await readCollecting(),
     settings: settingsCache
   };
 }
@@ -101,9 +104,7 @@ async function isStudioOrigin(href: string) {
 async function bootstrapForTab(tabId?: number, url?: string) {
   settingsCache = await loadCachedSettings();
   const href = url ?? "";
-  const excluded = href
-    ? (await isStudioOrigin(href)) || matchesExclusion(href, settingsCache.exclusionRules, settingsCache.builtinListPageRules)
-    : false;
+  const excluded = href ? (await isStudioOrigin(href)) || matchesExclusion(href, settingsCache.exclusionRules, settingsCache.builtinListPageRules) : false;
   const category = href ? resolveCategory(href, settingsCache) : "neutral";
   const nav = navForTab(tabId);
   const captureRules = settingsCache.captureRules ?? DEFAULT_CAPTURE_RULES;
@@ -169,8 +170,8 @@ export default defineBackground(() => {
   });
 
   browser.idle.setDetectionInterval(60);
-  browser.idle.onStateChanged.addListener((state) => {
-    if (!settingsCache.activityTracking.enabled) return;
+  browser.idle.onStateChanged.addListener(async (state) => {
+    if (!settingsCache.activityTracking.enabled || !(await readCollecting())) return;
     const mapped = state === "active" ? "active" : "idle";
     void ingestEvent({
       id: crypto.randomUUID(),
@@ -182,8 +183,8 @@ export default defineBackground(() => {
     });
   });
 
-  browser.windows.onFocusChanged.addListener((windowId) => {
-    if (!settingsCache.activityTracking.enabled) return;
+  browser.windows.onFocusChanged.addListener(async (windowId) => {
+    if (!settingsCache.activityTracking.enabled || !(await readCollecting())) return;
     const state = windowId === browser.windows.WINDOW_ID_NONE ? "blur" : "focus";
     void ingestEvent({
       id: crypto.randomUUID(),
@@ -229,7 +230,10 @@ export default defineBackground(() => {
   });
 
   const handlers: Record<string, (message: Message, sender: { tab?: { id?: number; url?: string } }) => Promise<unknown>> = {
-    "study-studio:event": (message, sender) => handleEvent(message.event, sender.tab?.id),
+    "study-studio:event": async (message, sender) => {
+      if (!(await readCollecting())) return { ok: true, skipped: true };
+      return handleEvent(message.event, sender.tab?.id);
+    },
     "study-studio:lookup-page": (message) => lookupPage(message.canonicalUrl),
     "study-studio:status": async () => {
       await checkConnectivity();
@@ -249,12 +253,12 @@ export default defineBackground(() => {
       return settingsCache;
     },
     "study-studio:presence": async (message) => {
-      if (getConnectivity().state !== "online") return { ok: false, dropped: true };
+      if (getConnectivity().state !== "online" || !(await readCollecting())) return { ok: false, dropped: true };
       const result = await apiRequest("/v1/presence", { method: "POST", body: message.presence, timeoutMs: 2_000 });
       return { ok: result.ok };
     },
     "study-studio:search": async (message, sender) => {
-      if (!message.url || !settingsCache.activityTracking.enabled) return { ok: true };
+      if (!message.url || !settingsCache.activityTracking.enabled || !(await readCollecting())) return { ok: true };
       const parsed = detectSearch(message.url);
       if (!parsed) return { ok: true };
       return handleEvent(
@@ -268,6 +272,11 @@ export default defineBackground(() => {
         },
         sender.tab?.id
       );
+    },
+    "study-studio:set-collecting": async (message) => {
+      await writeCollecting(Boolean(message.collecting));
+      await updateBadge();
+      return statusPayload();
     },
     "study-studio:failed-list": async () => listFailed(),
     "study-studio:failed-clear": async () => {
@@ -306,6 +315,7 @@ export default defineBackground(() => {
       },
       saveConnection: (ingestionUrl: string, pairingToken: string) =>
         handlers["study-studio:save-connection"]!({ type: "study-studio:save-connection", ingestionUrl, pairingToken }, {}),
+      setCollecting: (collecting: boolean) => handlers["study-studio:set-collecting"]!({ type: "study-studio:set-collecting", collecting }, {}),
       failedList: () => listFailed(),
       failedClear: () => clearFailed(),
       ingest: (event: CollectorEvent) => handleEvent(event),

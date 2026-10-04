@@ -124,6 +124,18 @@
         max-height: 90px;
         overflow: auto;
       }
+      .collect {
+        justify-content: space-between;
+      }
+      .collect button {
+        width: auto;
+        margin: 0;
+        padding: 6px 14px;
+      }
+      .collect button.stop {
+        background: #b91c1c;
+        border-color: #b91c1c;
+      }
       hr {
         border: 0;
         border-top: 1px solid var(--line);
@@ -136,6 +148,10 @@
     <div class="row">
       <span id="dot" class="dot"></span>
       <span id="connection-label">检测中…</span>
+    </div>
+    <div class="row collect">
+      <span id="collect-label" class="muted">采集已停止</span>
+      <button id="collect-toggle" type="button">启动采集</button>
     </div>
     <div class="counts">待同步知识 <strong id="knowledge-count">0</strong> 条</div>
     <div class="muted" id="record-count">另含 0 条阅读与提问记录</div>

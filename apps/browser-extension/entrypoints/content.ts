@@ -1,4 +1,5 @@
 import { installCollector } from "@study-studio/collector-runtime";
+import { COLLECTING_KEY, readCollecting } from "../lib/collecting";
 
 type Collector = ReturnType<typeof installCollector>;
 
@@ -73,22 +74,49 @@ export default defineContentScript({
       });
     };
 
-    collector = await install();
+    let collecting = await readCollecting();
+    let installing: Promise<Collector> | null = null;
+    const start = async () => {
+      if (collector) return collector;
+      installing ??= install().finally(() => {
+        installing = null;
+      });
+      const next = await installing;
+      if (!collecting) {
+        next.stop();
+        return next;
+      }
+      collector = next;
+      return next;
+    };
+    const stop = () => {
+      collector?.stop();
+      collector = null;
+    };
+
+    if (collecting) await start();
+    browser.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local" || !(COLLECTING_KEY in changes)) return;
+      collecting = changes[COLLECTING_KEY]!.newValue === true;
+      if (collecting) void start();
+      else stop();
+    });
     window.addEventListener("pagehide", () => {
       collector?.stop();
       collector = null;
     });
     window.addEventListener("pageshow", (event) => {
-      if (event.persisted && !collector)
-        void install().then((next) => {
-          collector = next;
-        });
+      if (event.persisted && collecting && !collector) void start();
     });
 
     browser.runtime.onMessage.addListener((message: { type?: string; text?: string }, _sender, respond) => {
       if (message.type !== "study-studio:add-note" || !message.text) return;
+      if (!collecting) {
+        respond({ ok: false, stopped: true });
+        return;
+      }
       void (async () => {
-        collector ??= await install();
+        collector ??= await start();
         collector.addNote(message.text!);
         respond({ ok: true, mode: collector.mode });
       })();

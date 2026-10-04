@@ -7,6 +7,7 @@ import {
   eventBatchResultSchema
 } from "@study-studio/shared";
 import { apiRequest } from "./api";
+import { readCollecting } from "./collecting";
 import { checkConnectivity, getConnectivity, markOffline, markUnauthorized, shouldEnqueueWithoutSend } from "./connectivity";
 import { db, enqueueEvent, pendingCounts, rememberCapturedUrl, type CollectorEvent } from "./db";
 
@@ -38,9 +39,10 @@ export function getSyncProgress(): SyncProgress {
 export async function updateBadge(): Promise<void> {
   const { knowledge } = await pendingCounts();
   const connectivity = getConnectivity();
-  const text = knowledge > 0 ? String(Math.min(knowledge, 999)) : "";
+  const collecting = await readCollecting();
+  const text = !collecting ? "OFF" : knowledge > 0 ? String(Math.min(knowledge, 999)) : "";
   await browser.action.setBadgeText({ text });
-  const color = connectivity.state === "unauthorized" ? "#c2410c" : connectivity.state === "offline" ? "#6b7280" : "#2563eb";
+  const color = !collecting ? "#78716c" : connectivity.state === "unauthorized" ? "#c2410c" : connectivity.state === "offline" ? "#6b7280" : "#2563eb";
   await browser.action.setBadgeBackgroundColor({ color });
 }
 

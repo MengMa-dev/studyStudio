@@ -87,8 +87,14 @@ try {
     return route.fulfill({ status: 204, body: "" });
   });
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
-  type Hooks = { __studyStudio?: { saveConnection(url: string, token: string): Promise<{ connectivity?: { state?: string } }> } };
+  type Hooks = {
+    __studyStudio?: {
+      saveConnection(url: string, token: string): Promise<{ connectivity?: { state?: string } }>;
+      setCollecting(collecting: boolean): Promise<unknown>;
+    };
+  };
   await waitFor("extension test hooks", () => worker.evaluate(() => Boolean((globalThis as Hooks).__studyStudio)));
+  await worker.evaluate(() => (globalThis as Hooks).__studyStudio!.setCollecting(true));
   const connected = await worker.evaluate(([ingestionUrl, pairingToken]) => (globalThis as Hooks).__studyStudio!.saveConnection(ingestionUrl, pairingToken), [
     `http://127.0.0.1:${port}`,
     token

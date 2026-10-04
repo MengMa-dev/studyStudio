@@ -7,11 +7,22 @@ type Status = {
   failedCount?: number;
   sync?: { done: number; total: number; running: boolean };
   connection?: { ingestionUrl: string; pairingToken: string };
+  collecting?: boolean;
 };
 
 let connectionFilled = false;
+let collecting = false;
+
+function setCollectingUi(next: boolean) {
+  collecting = next;
+  el("collect-label").textContent = next ? "正在采集" : "采集已停止";
+  const toggle = el<HTMLButtonElement>("collect-toggle");
+  toggle.textContent = next ? "停止采集" : "启动采集";
+  toggle.classList.toggle("stop", next);
+}
 
 function setConnectionUi(status: Status) {
+  if (status.collecting !== undefined) setCollectingUi(status.collecting);
   const state = status.connectivity?.state ?? "unknown";
   const dot = el("dot");
   dot.className = `dot ${state}`;
@@ -59,6 +70,12 @@ async function refresh() {
 }
 
 void refresh();
+
+el<HTMLButtonElement>("collect-toggle").addEventListener("click", async () => {
+  const status = (await browser.runtime.sendMessage({ type: "study-studio:set-collecting", collecting: !collecting })) as Status;
+  setConnectionUi(status);
+  el("toast").textContent = collecting ? "已开始采集" : "已停止采集";
+});
 
 el<HTMLButtonElement>("sync").addEventListener("click", async () => {
   el("toast").textContent = "同步中…";
@@ -118,6 +135,10 @@ el<HTMLButtonElement>("save").addEventListener("click", async () => {
 el<HTMLButtonElement>("add-note").addEventListener("click", async () => {
   const text = el<HTMLTextAreaElement>("note").value.trim();
   if (!text) return;
+  if (!collecting) {
+    el("toast").textContent = "采集已停止，请先启动采集。";
+    return;
+  }
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   const result = tab?.id === undefined ? null : await browser.tabs.sendMessage(tab.id, { type: "study-studio:add-note", text }).catch(() => null);
   el("toast").textContent = result?.ok ? "备注已记录。" : "当前页面不可记录备注。";
