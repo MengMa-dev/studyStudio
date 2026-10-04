@@ -149,10 +149,15 @@ export type KnowledgeProcessingInput = z.infer<typeof knowledgeProcessingInputSc
 export const REJECT_REASONS = ["off_topic", "low_information", "navigational", "transient", "ignored"] as const;
 export const RELATION_TYPES = ["part_of", "prerequisite", "related", "contrasts"] as const;
 
+export const POINT_IMPORTANCE = ["core", "supporting", "detail"] as const;
+export type PointImportance = (typeof POINT_IMPORTANCE)[number];
+
 const evidence = z.object({
   quote: z.string().describe("条目原文摘录"),
   question: z.string().nullable().describe("问答来源时为该轮的用户问题，否则 null"),
-  turn_item_id: z.string().nullable().describe("问答来源时为该轮的 item_id，否则 null")
+  turn_item_id: z.string().nullable().describe("问答来源时为该轮的 item_id，否则 null"),
+  point: z.string().nullable().optional().describe("知识点陈述（多轮处理生成）"),
+  importance: z.enum(POINT_IMPORTANCE).nullable().optional()
 });
 
 const completeness = z.object({ covered: z.array(z.string()), missing: z.array(z.string()) });
@@ -209,6 +214,152 @@ export type KnowledgeProcessingOutput = z.infer<typeof knowledgeProcessingOutput
 /** Adopt mode (manual organize of a rejected item): no value gate, `reject` is not allowed. */
 export const knowledgeProcessingAdoptOutputSchema = z.discriminatedUnion("decision", [newDecision, supplementDecision, duplicateDecision]);
 
+// ⑤ Multistep knowledge processing (15): S1 triage → S2 extract (per chunk) → S3+S4 compose
+
+const relatedEntryBrief = z.object({
+  entry_id: z.string(),
+  name: z.string(),
+  aliases: z.array(z.string()),
+  kind: z.string(),
+  summary: z.string(),
+  similarity: z.number(),
+  recency_relevance: z.number(),
+  outline: z.array(z.string())
+});
+
+export const knowledgeTriageInputSchema = z.object({
+  step: z.literal("triage"),
+  mode: z.enum(["normal", "adopt"]),
+  episode: z.object({ episode_id: z.string(), topic: z.string(), learning_goal: z.string(), uncertain: z.boolean() }).nullable(),
+  learner_profile: learnerProfile,
+  item: z.object({
+    item_id: z.string(),
+    type: z.enum(["webpage", "conversation", "document"]),
+    source_kind: z.enum(SOURCE_KINDS),
+    title: z.string(),
+    url: z.string().optional(),
+    outline: z.array(z.string()).describe("全文标题大纲"),
+    excerpt: z.string().optional().describe("正文节选（短内容为全文）"),
+    turns: z.array(conversationTurn).optional().describe("问答线程：全部问题 + 每轮回答开头"),
+    user_highlights: z.array(z.string()),
+    user_note: z.string().nullable(),
+    fuzzy_notes: z.array(z.string()),
+    requirement: z.string().nullable(),
+    engagement: z.enum(ENGAGEMENT_LEVELS)
+  }),
+  related_entries: z.array(relatedEntryBrief),
+  ignored_names: z.array(z.string())
+});
+export type KnowledgeTriageInput = z.infer<typeof knowledgeTriageInputSchema>;
+
+const triageFields = {
+  item_id: z.string(),
+  value_score: z.number().min(0).max(1),
+  reason: z.string(),
+  reject_reason: z.enum(REJECT_REASONS).nullable(),
+  target_entry_ids: z.array(z.string()).describe("duplicate 时覆盖它的已有词条，否则为空数组"),
+  duplicate_quotes: z.array(z.string()).describe("duplicate 时摘自原文的 1–3 段证据，否则为空数组"),
+  thesis: z.string().nullable().describe("proceed 时必填：整个条目的核心论点"),
+  user_focus: z.array(z.string()).describe("用户关心的具体问题")
+};
+export const knowledgeTriageOutputSchema = z.object({ ...triageFields, decision: z.enum(["proceed", "duplicate", "reject"]) });
+export const knowledgeTriageAdoptOutputSchema = z.object({ ...triageFields, decision: z.enum(["proceed", "duplicate"]) });
+export type KnowledgeTriageOutput = z.infer<typeof knowledgeTriageOutputSchema>;
+
+export const knowledgeExtractInputSchema = z.object({
+  step: z.literal("extract"),
+  item: z.object({ item_id: z.string(), type: z.enum(["webpage", "conversation", "document"]), source_kind: z.enum(SOURCE_KINDS), title: z.string() }),
+  thesis: z.string(),
+  user_focus: z.array(z.string()),
+  user_highlights: z.array(z.string()),
+  user_note: z.string().nullable(),
+  chunk: z.object({
+    index: z.number(),
+    total: z.number(),
+    heading_path: z.array(z.string()),
+    text: z.string().nullable(),
+    turns: z.array(conversationTurn).nullable(),
+    context_question: z.string().nullable()
+  })
+});
+export type KnowledgeExtractInput = z.infer<typeof knowledgeExtractInputSchema>;
+
+export const knowledgeExtractOutputSchema = z.object({
+  points: z.array(
+    z.object({
+      statement: z.string().describe("一句完整、脱离上下文可读的中文陈述"),
+      quote: z.string().describe("逐字摘自分块原文"),
+      section: z.string().nullable(),
+      concept: z.string().describe("所属知识概念名（词条级别）"),
+      importance: z.enum(POINT_IMPORTANCE),
+      turn_item_id: z.string().nullable()
+    })
+  )
+});
+export type KnowledgeExtractOutput = z.infer<typeof knowledgeExtractOutputSchema>;
+
+export const DROP_REASONS = ["covered", "trivial", "off_topic", "unreliable"] as const;
+
+export const knowledgeComposeInputSchema = z.object({
+  step: z.literal("compose"),
+  mode: z.enum(["normal", "adopt"]),
+  learner_profile: learnerProfile,
+  item: z.object({
+    item_id: z.string(),
+    type: z.enum(["webpage", "conversation", "document"]),
+    source_kind: z.enum(SOURCE_KINDS),
+    title: z.string(),
+    thesis: z.string(),
+    user_focus: z.array(z.string()),
+    requirement: z.string().nullable()
+  }),
+  points: z.array(z.object({ id: z.string(), statement: z.string(), concept: z.string(), importance: z.enum(POINT_IMPORTANCE), section: z.string().nullable() })),
+  candidate_entries: z.array(
+    z.object({
+      entry_id: z.string(),
+      name: z.string(),
+      aliases: z.array(z.string()),
+      kind: z.string(),
+      summary: z.string(),
+      outline: z.array(z.string()),
+      body_markdown: z.string().optional()
+    })
+  ),
+  neighbor_entries: z.array(z.object({ entry_id: z.string(), name: z.string(), aliases: z.array(z.string()) })),
+  ignored_names: z.array(z.string()),
+  categories: z.array(z.string()),
+  kinds: z.array(z.string()),
+  feedback: z.array(z.string()).nullable()
+});
+export type KnowledgeComposeInput = z.infer<typeof knowledgeComposeInputSchema>;
+
+const composeConcept = z.object({
+  name: z.string(),
+  match: z.string().describe('已有词条 entry_id（来自 candidate_entries / neighbor_entries），或 "new"'),
+  aliases: z.array(z.string()),
+  kind: z.string(),
+  point_ids: z.array(z.string()).min(1).describe("分配给该词条的知识点 id"),
+  patch: z
+    .object({ ops: z.array(patchOp).min(1), summary: z.string().nullable(), completeness: completeness.nullable() })
+    .nullable()
+    .describe("已有词条有新增内容时填写；分到的知识点都已被正文覆盖、或 match=\"new\" 时为 null"),
+  category: z.string().nullable().describe('match="new" 时必填'),
+  summary: z.string().nullable().describe('match="new" 时必填'),
+  body_markdown: z.string().nullable().describe('match="new" 时必填'),
+  completeness: completeness.nullable().describe('match="new" 时必填')
+});
+
+export const knowledgeComposeOutputSchema = z.object({
+  item_summary: z.string(),
+  item_points: z.array(z.string()),
+  concepts: z.array(composeConcept),
+  relations: z.array(relation),
+  dropped: z.array(
+    z.object({ point_id: z.string(), reason: z.enum(DROP_REASONS), entry_id: z.string().nullable().describe("covered 时为已覆盖它的词条") })
+  )
+});
+export type KnowledgeComposeOutput = z.infer<typeof knowledgeComposeOutputSchema>;
+
 // Entry Rewrite
 
 export const entryRewriteInputSchema = z.object({
@@ -226,23 +377,29 @@ export const entryRewriteInputSchema = z.object({
   evidence: z
     .array(
       z.object({
+        id: z.string(),
         item_id: z.string(),
         source_kind: z.enum(SOURCE_KINDS),
         title: z.string(),
+        point: z.string().nullable().describe("知识点陈述；为 null 时以 quote 为要点"),
+        importance: z.enum(POINT_IMPORTANCE),
         quote: z.string(),
         question: z.string().nullable()
       })
     )
-    .describe("按来源可靠性排序：official_doc / repo 在前，ai_answer 在后"),
+    .describe("按重要度、来源可靠性排序：core 在前；official_doc / repo 在前，ai_answer 在后"),
   entry_notes: z.array(z.string()),
   requirement: z.string().nullable(),
-  related_entry_names: z.array(z.string())
+  related_entry_names: z.array(z.string()),
+  feedback: z.array(z.string()).nullable()
 });
 export type EntryRewriteInput = z.infer<typeof entryRewriteInputSchema>;
 
 export const entryRewriteOutputSchema = z.object({
   body_markdown: z.string(),
   summary: z.string(),
-  completeness: completeness
+  completeness: completeness,
+  covered_ids: z.array(z.string()).describe("正文已写入的 evidence id"),
+  dropped: z.array(z.object({ id: z.string(), reason: z.enum(["redundant", "unreliable"]) }))
 });
 export type EntryRewriteOutput = z.infer<typeof entryRewriteOutputSchema>;
