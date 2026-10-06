@@ -8,6 +8,7 @@ import {
   organizeRunsQuerySchema,
   organizeRunsResponseSchema,
   organizeRunStartResponseSchema,
+  organizeRunTraceResponseSchema,
   organizeSettingsResponseSchema,
   organizeSettingsUpdateSchema,
   type OrganizeEvent,
@@ -49,6 +50,10 @@ export const realOrganizeApi = {
 
   async getOrganizeRun(id: string) {
     return request(ORGANIZE_API.runDetail(id), undefined, organizeRunDetailSchema);
+  },
+
+  async getOrganizeRunTrace(id: string) {
+    return request(ORGANIZE_API.runTrace(id), undefined, organizeRunTraceResponseSchema);
   },
 
   async retryOrganizeRun(id: string) {

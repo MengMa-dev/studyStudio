@@ -15,6 +15,7 @@ import {
 import type { AppServices } from "../app.js";
 import { resolveTargets } from "../../domains/organize/pipeline.js";
 import { failedTargets, getRunRow, lastFinishedAt, listRuns, runDetail, runSpecOf, toRunSummary, type RunSpec } from "../../domains/organize/run-store.js";
+import { runTrace } from "../../domains/organize/trace.js";
 import { readOrganizeSettings, writeOrganizeSettings } from "../../domains/organize/store.js";
 import { organizeWorkerFor, OrganizeWorker } from "../../jobs/organize-worker.js";
 
@@ -130,6 +131,11 @@ export function registerOrganizeRoutes(api: Hono, services: AppServices): void {
   api.get("/organize/runs/:id", (c) => {
     const detail = runDetail(db, c.req.param("id"));
     return detail ? c.json(detail) : c.json({ error: "not_found" }, 404);
+  });
+
+  api.get("/organize/runs/:id/trace", (c) => {
+    const row = getRunRow(db, c.req.param("id"));
+    return row ? c.json({ steps: runTrace(db, row.id) }) : c.json({ error: "not_found" }, 404);
   });
 
   api.post("/organize/runs/:id/retry", (c) => {

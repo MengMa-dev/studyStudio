@@ -6,6 +6,7 @@ import { EllipsisText } from "@/components/ui/EllipsisText";
 import { DECISION_TEXT, formatDateTime, formatElapsed, formatTokens, RUN_ITEM_STATUS } from "@/lib/kb";
 import { useOrganizeStore } from "@/stores/organize";
 import { episodeText, kbChangeText, RunProgress, RunStatusTags, StageTable, useRetryRun } from "./RunCard";
+import { RunTrace } from "./RunTrace";
 
 const CHANGE_LABEL = { created: ["新增", "green"], supplemented: ["补充", "teal"], duplicate: ["重复挂来源", "blue"], rewritten: ["重写", "purple"] } as const;
 
@@ -49,23 +50,23 @@ export function RunDetailPage({ runId }: { runId: string }) {
           {data.requirement ? <div className="small muted">整理要求：{data.requirement}</div> : null}
           <RunProgress run={data} />
           <div className="run-stats">
-            <div>
+            <div title="本次纳入整理的收集条目数">
               <div className="small muted">处理条目</div>
               <b>{data.stats.items.total}</b>
             </div>
-            <div>
+            <div title="片段切分 + 学习判定结果；「未切分」表示本次跳过了这两步（手动整理所选条目、知识点重新整理等）">
               <div className="small muted">活动片段</div>
               <b className="small-b">{episodeText(data)}</b>
             </div>
-            <div>
+            <div title="判定为新知识 / 补充 / 重复且写库成功的条目数">
               <div className="small muted">已入库</div>
               <b style={{ color: "var(--green)" }}>{data.stats.items.ingested}</b>
             </div>
-            <div>
+            <div title="判为非学习、命中规则预过滤或知识处理判定不入库的条目数">
               <div className="small muted">未采纳</div>
               <b style={{ color: "var(--orange)" }}>{data.stats.items.rejected}</b>
             </div>
-            <div>
+            <div title="新增知识点、新增关系、补充 / 重写的已有词条数">
               <div className="small muted">知识库变化</div>
               <b className="small-b">{kbChangeText(data)}</b>
             </div>
@@ -75,6 +76,8 @@ export function RunDetailPage({ runId }: { runId: string }) {
           </div>
           {data.stats.stages.length ? <StageTable run={data} /> : null}
         </div>
+
+        <RunTrace run={data} live={activeRunId === runId} />
 
         {data.failures.length ? (
           <div className="card">

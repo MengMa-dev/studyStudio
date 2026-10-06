@@ -176,6 +176,30 @@ export const organizeRunDetailSchema = organizeRunSummarySchema.extend({
 });
 export type OrganizeRunDetail = z.infer<typeof organizeRunDetailSchema>;
 
+/**
+ * One recorded step of a run (`organize_traces`). `step` is an LLM task name
+ * (`learning_judge` / `knowledge_extract` / `knowledge_align` / `entry_rewrite`)
+ * or a program step (`context` / `episodes` / `judge_cached` / `judge_verdict` / `retrieve` / `processing_result` / `integration` / `skipped`).
+ */
+export const organizeTraceStepSchema = z.object({
+  seq: count,
+  stage: organizeStageSchema,
+  step: z.string(),
+  itemIds: z.array(z.string()),
+  episodeId: z.string().nullable(),
+  entryId: z.string().nullable(),
+  input: z.unknown(),
+  output: z.unknown(),
+  model: z.string().nullable(),
+  inputTokens: count,
+  outputTokens: count,
+  createdAt: z.string().nullable()
+});
+export type OrganizeTraceStep = z.infer<typeof organizeTraceStepSchema>;
+
+export const organizeRunTraceResponseSchema = z.object({ steps: z.array(organizeTraceStepSchema) });
+export type OrganizeRunTraceResponse = z.infer<typeof organizeRunTraceResponseSchema>;
+
 export const organizeRunsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20)
@@ -228,5 +252,6 @@ export const ORGANIZE_API = {
   runs: "/v1/organize/runs",
   runDetail: (id: string) => `/v1/organize/runs/${encodeURIComponent(id)}`,
   retry: (id: string) => `/v1/organize/runs/${encodeURIComponent(id)}/retry`,
+  runTrace: (id: string) => `/v1/organize/runs/${encodeURIComponent(id)}/trace`,
   events: "/v1/organize/events"
 } as const;
