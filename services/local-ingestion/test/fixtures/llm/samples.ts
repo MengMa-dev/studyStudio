@@ -3,29 +3,21 @@
  * Learner profile follows the dev convention: role 前端开发, learning focus Agent 架构.
  * `check` returns the mismatches between a recorded output and the expected branch (empty = as expected).
  */
-import { readFileSync } from "node:fs";
 import { SEED_KINDS } from "@study-studio/shared";
 import type {
-  EntryRewriteInput,
-  EntryRewriteOutput,
-  KnowledgeComposeInput,
-  KnowledgeComposeOutput,
+  KnowledgeAlignInput,
+  KnowledgeAlignOutput,
   KnowledgeExtractInput,
   KnowledgeExtractOutput,
-  KnowledgeProcessingInput,
-  KnowledgeProcessingOutput,
-  KnowledgeTriageInput,
-  KnowledgeTriageOutput,
   LearningJudgeInput,
   LearningJudgeOutput
 } from "../../../src/ai/prompts/schemas.draft";
-import { missingPoints, validateCompose, type KnowledgePoint } from "../../../src/domains/organize/coverage";
-import { outlineOf } from "../../../src/domains/organize/store";
+import { normalizeEntryName } from "../../../src/domains/organize/normalize";
+import { checkAlign, checkExtract, entrySections, sourceSections, type SourceText } from "../../../src/domains/organize/verify";
 
 export type Sample<I, O> = { name: string; expected: string; input: I; check: (output: O) => string[] };
 
 const JUDGE_PROFILE = { role: "前端开发", learning_focus: [{ topic: "Agent 架构", expires_at: "2026-11-01" }] };
-const PROFILE = { role: "前端开发", learning_focus: ["Agent 架构"] };
 const RECENT_TOPICS = ["LangGraph", "RAG 重排", "Function Calling"];
 const CATEGORIES = ["Agent 框架", "RAG", "前端工程", "LLM 基础"];
 const KINDS = [...SEED_KINDS];
@@ -41,33 +33,6 @@ function judgeCheck(expect: { learning: boolean; band: "high" | "uncertain" | "l
       problems.push(`segment_suggestion 应为 ${expect.action}，实际 ${output.segment_suggestion.action}`);
     if (expect.returned !== undefined && output.returned_to_topic !== expect.returned) problems.push(`returned_to_topic 应为 ${expect.returned}`);
     for (const id of expect.candidates ?? []) if (!output.candidate_item_ids.includes(id)) problems.push(`缺少候选条目 ${id}`);
-    return problems;
-  };
-}
-
-function processingCheck(expect: {
-  decisions: KnowledgeProcessingOutput["decision"][];
-  rejectReason?: string;
-  contrasts?: boolean;
-  matches?: string[];
-  questionEvidence?: boolean;
-}) {
-  return (output: KnowledgeProcessingOutput): string[] => {
-    const problems: string[] = [];
-    if (!expect.decisions.includes(output.decision)) problems.push(`decision 应为 ${expect.decisions.join("/")}，实际 ${output.decision}`);
-    if (expect.rejectReason && output.decision === "reject" && output.reject_reason !== expect.rejectReason)
-      problems.push(`reject_reason 应为 ${expect.rejectReason}，实际 ${output.reject_reason}`);
-    if (output.decision === "new" || output.decision === "supplement") {
-      if (expect.contrasts && !output.relations.some((relation) => relation.type === "contrasts" && relation.description))
-        problems.push("缺少带 description 的 contrasts 关系");
-      for (const id of expect.matches ?? []) if (!output.concepts.some((concept) => concept.match === id)) problems.push(`缺少对齐到 ${id} 的概念`);
-      if (expect.questionEvidence && !output.concepts.some((concept) => concept.evidence.some((item) => item.question && item.turn_item_id)))
-        problems.push("问答 evidence 缺少 question / turn_item_id");
-      for (const concept of output.concepts) {
-        if (concept.match === "new" && !(concept.body_markdown && concept.summary)) problems.push(`新词条 ${concept.name} 缺少 summary / body_markdown`);
-        if (concept.match !== "new" && !concept.patch) problems.push(`已有词条 ${concept.name} 缺少 patch`);
-      }
-    }
     return problems;
   };
 }
@@ -299,7 +264,6 @@ const HITL_ENTRY = {
   aliases: ["HITL", "人在回路"],
   kind: "concept",
   summary: "在 Agent 执行过程中插入人工审批或输入节点，让人参与关键决策。",
-  outline: ["## 定义", "## 实现方式", "## 常见场景"],
   body_markdown:
     "## 定义\n在 Agent 执行过程中插入人工审批或输入节点，由人确认后再继续。\n## 实现方式\n在需要人工介入的节点暂停执行，等待用户输入后继续。\n## 常见场景\n- 工具调用前审批（如发邮件、付款）\n- 让用户修改 Agent 生成的计划"
 };
@@ -310,7 +274,6 @@ const CHECKPOINT_ENTRY = {
   aliases: ["检查点", "checkpointer"],
   kind: "concept",
   summary: "LangGraph 在每个 super-step 结束时保存图状态快照，用于记忆、容错与时间回溯。",
-  outline: ["## 定义", "## Checkpointer 实现", "## 用途"],
   body_markdown:
     "## 定义\nLangGraph 在每个 super-step 结束时把图状态保存为 checkpoint，按 thread_id 组织。\n## Checkpointer 实现\n- MemorySaver：内存，测试用\n- SqliteSaver / PostgresSaver：持久化，生产用\n## 用途\n- 对话记忆（同一 thread 继续）\n- 失败后从最近 checkpoint 恢复\n- 时间回溯（replay / fork）"
 };
@@ -321,26 +284,43 @@ const AGENT_LOOP_ENTRY = {
   aliases: ["智能体循环"],
   kind: "pattern",
   summary: "LLM 在循环中根据观察结果决定下一步动作（调用工具或结束），直到完成任务。",
-  outline: ["## 定义", "## 基本流程"],
   body_markdown:
     "## 定义\nLLM 在循环中根据上一步的观察结果决定下一步动作，直到完成任务或达到步数上限。\n## 基本流程\n1. 模型决定调用哪个工具\n2. 程序执行工具并把结果返回给模型\n3. 重复直到模型给出最终回答"
 };
 
-const LANGGRAPH_EPISODE = {
-  episode_id: "ep_20261002_2000",
-  topic: "LangGraph",
-  learning_goal: "理解 interrupt、checkpoint 与 human-in-the-loop 的关系",
-  uncertain: false
+type SourceEntry = { entry_id: string; name: string; aliases: string[]; kind: string; summary: string; body_markdown: string };
+
+/** Item + KB context the extract / align samples are derived from. */
+type ProcessingSource = {
+  name: string;
+  expected: string;
+  input: {
+    item: {
+      item_id: string;
+      type: KnowledgeExtractInput["item"]["type"];
+      source_kind: KnowledgeExtractInput["item"]["source_kind"];
+      title: string;
+      url?: string;
+      content?: string;
+      turns?: NonNullable<KnowledgeExtractInput["turns"]>;
+      user_highlights: string[];
+      user_note: string | null;
+      fuzzy_notes: string[];
+      requirement: string | null;
+    };
+    related_entries: SourceEntry[];
+    neighbor_entries: KnowledgeAlignInput["neighbor_entries"];
+    ignored_names: string[];
+    categories: string[];
+    kinds: string[];
+  };
 };
 
-export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, KnowledgeProcessingOutput>[] = [
+const processingSources: ProcessingSource[] = [
   {
     name: "new",
     expected: "new：知识库没有 MCP，新建词条，可与 Function Calling 建关系",
     input: {
-      mode: "normal",
-      episode: { episode_id: "ep_20261002_2130", topic: "MCP", learning_goal: "了解 Model Context Protocol 的定位与架构", uncertain: false },
-      learner_profile: PROFILE,
       item: {
         item_id: "item_mcp_intro",
         type: "webpage",
@@ -352,8 +332,7 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
         user_highlights: [],
         user_note: null,
         fuzzy_notes: [],
-        requirement: null,
-        engagement: "medium"
+        requirement: null
       },
       related_entries: [
         {
@@ -362,9 +341,6 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
           aliases: ["工具调用", "tool use"],
           kind: "concept",
           summary: "模型按 JSON Schema 输出函数名与参数，由程序执行函数并把结果返回给模型。",
-          similarity: 0.63,
-          recency_relevance: 0.55,
-          outline: ["## 定义", "## 流程"],
           body_markdown: "## 定义\n模型按开发者声明的 JSON Schema 输出要调用的函数名与参数。\n## 流程\n声明工具 → 模型返回调用请求 → 程序执行 → 结果回传模型。"
         }
       ],
@@ -372,16 +348,12 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       ignored_names: [],
       categories: CATEGORIES,
       kinds: KINDS
-    },
-    check: processingCheck({ decisions: ["new"] })
+    }
   },
   {
     name: "supplement",
     expected: "supplement：给 kb_hitl 打补丁（interrupt 暂停 + 依赖 checkpointer 恢复），可新建 interrupt()",
     input: {
-      mode: "normal",
-      episode: LANGGRAPH_EPISODE,
-      learner_profile: PROFILE,
       item: {
         item_id: "item_C",
         type: "webpage",
@@ -393,27 +365,19 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
         user_highlights: ["The interrupt() function pauses graph execution at a specific node and surfaces a value to the client"],
         user_note: null,
         fuzzy_notes: [],
-        requirement: null,
-        engagement: "strong"
+        requirement: null
       },
-      related_entries: [
-        { ...HITL_ENTRY, similarity: 0.86, recency_relevance: 0.7 },
-        { ...CHECKPOINT_ENTRY, similarity: 0.71, recency_relevance: 0.64 }
-      ],
+      related_entries: [HITL_ENTRY, CHECKPOINT_ENTRY],
       neighbor_entries: [{ entry_id: "kb_langgraph", name: "LangGraph", aliases: [] }],
       ignored_names: [],
       categories: CATEGORIES,
       kinds: KINDS
-    },
-    check: processingCheck({ decisions: ["supplement"], matches: ["kb_hitl"] })
+    }
   },
   {
     name: "duplicate",
     expected: "duplicate：内容已被 kb_rerank 覆盖",
     input: {
-      mode: "normal",
-      episode: { episode_id: "ep_20261001_2100", topic: "RAG", learning_goal: "回顾 RAG 检索质量优化方法", uncertain: false },
-      learner_profile: PROFILE,
       item: {
         item_id: "item_rerank_blog",
         type: "webpage",
@@ -425,8 +389,7 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
         user_highlights: [],
         user_note: null,
         fuzzy_notes: [],
-        requirement: null,
-        engagement: "weak"
+        requirement: null
       },
       related_entries: [
         {
@@ -435,9 +398,6 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
           aliases: ["Rerank", "重排序"],
           kind: "method",
           summary: "向量检索粗召回后，用 cross-encoder 对候选逐对打分重排，只把最相关的片段放入上下文。",
-          similarity: 0.89,
-          recency_relevance: 0.48,
-          outline: ["## 定义", "## 流程", "## 常用模型", "## 取舍"],
           body_markdown:
             "## 定义\n在向量检索之后增加一步重排，提高放入上下文的片段相关度。\n## 流程\n1. 向量检索粗召回较多候选（如 top-50）\n2. cross-encoder 对「查询-片段」逐对打分\n3. 取分数最高的几条放入上下文\n## 常用模型\nbge-reranker、Cohere Rerank、Jina Reranker。\n## 取舍\ncross-encoder 比双塔向量模型准但慢，只用于少量候选，兼顾成本与效果。"
         }
@@ -446,16 +406,12 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
       ignored_names: [],
       categories: CATEGORIES,
       kinds: KINDS
-    },
-    check: processingCheck({ decisions: ["duplicate"] })
+    }
   },
   {
     name: "reject-transient",
     expected: "reject / transient：一次性的端口占用报错解法",
     input: {
-      mode: "normal",
-      episode: { episode_id: "ep_20261002_1500", topic: "Vite", learning_goal: "解决本地开发服务器启动报错", uncertain: false },
-      learner_profile: PROFILE,
       item: {
         item_id: "item_vite_port",
         type: "webpage",
@@ -467,24 +423,19 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
         user_highlights: [],
         user_note: null,
         fuzzy_notes: [],
-        requirement: null,
-        engagement: "weak"
+        requirement: null
       },
       related_entries: [],
       neighbor_entries: [],
       ignored_names: [],
       categories: CATEGORIES,
       kinds: KINDS
-    },
-    check: processingCheck({ decisions: ["reject"], rejectReason: "transient" })
+    }
   },
   {
     name: "reject-low-information",
     expected: "reject / low_information：空泛的 Agent 趋势文章",
     input: {
-      mode: "normal",
-      episode: { episode_id: "ep_20261002_2230", topic: "AI Agent", learning_goal: "了解 Agent 的发展趋势", uncertain: true },
-      learner_profile: PROFILE,
       item: {
         item_id: "item_agent_hype",
         type: "webpage",
@@ -496,24 +447,19 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
         user_highlights: [],
         user_note: null,
         fuzzy_notes: [],
-        requirement: null,
-        engagement: "weak"
+        requirement: null
       },
-      related_entries: [{ ...AGENT_LOOP_ENTRY, similarity: 0.58, recency_relevance: 0.4 }],
+      related_entries: [AGENT_LOOP_ENTRY],
       neighbor_entries: [],
       ignored_names: [],
       categories: CATEGORIES,
       kinds: KINDS
-    },
-    check: processingCheck({ decisions: ["reject"], rejectReason: "low_information" })
+    }
   },
   {
     name: "adopt",
     expected: "采纳模式：内容单薄但不得 reject，应为 new（ReAct）或 supplement（kb_agent_loop）",
     input: {
-      mode: "adopt",
-      episode: null,
-      learner_profile: PROFILE,
       item: {
         item_id: "item_react_post",
         type: "webpage",
@@ -525,24 +471,19 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
         user_highlights: [],
         user_note: null,
         fuzzy_notes: [],
-        requirement: null,
-        engagement: "strong"
+        requirement: null
       },
-      related_entries: [{ ...AGENT_LOOP_ENTRY, similarity: 0.78, recency_relevance: 0.66 }],
+      related_entries: [AGENT_LOOP_ENTRY],
       neighbor_entries: [{ entry_id: "kb_function_calling", name: "Function Calling", aliases: ["工具调用"] }],
       ignored_names: [],
       categories: CATEGORIES,
       kinds: KINDS
-    },
-    check: processingCheck({ decisions: ["new", "supplement", "duplicate"] })
+    }
   },
   {
     name: "user-note",
     expected: "new：按笔记聚焦 workflow vs agent 的区别与「何时不用 agent」，输出 contrasts 关系",
     input: {
-      mode: "normal",
-      episode: { episode_id: "ep_20261003_0900", topic: "Agent 架构", learning_goal: "理解 Agent 系统的常见编排模式", uncertain: false },
-      learner_profile: PROFILE,
       item: {
         item_id: "item_effective_agents",
         type: "webpage",
@@ -554,24 +495,19 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
         user_highlights: ["Workflows are systems where LLMs and tools are orchestrated through predefined code paths."],
         user_note: "重点：workflow 和 agent 的区别，以及什么时候不该用 agent",
         fuzzy_notes: ["想搞清楚 Agent 架构里有哪些编排模式"],
-        requirement: null,
-        engagement: "strong"
+        requirement: null
       },
-      related_entries: [{ ...AGENT_LOOP_ENTRY, similarity: 0.74, recency_relevance: 0.69 }],
+      related_entries: [AGENT_LOOP_ENTRY],
       neighbor_entries: [{ entry_id: "kb_function_calling", name: "Function Calling", aliases: ["工具调用"] }],
       ignored_names: [],
       categories: CATEGORIES,
       kinds: KINDS
-    },
-    check: processingCheck({ decisions: ["new", "supplement"], contrasts: true })
+    }
   },
   {
     name: "conversation-thread",
     expected: "supplement / new：问答线程，checkpoint 与 interrupt 输出 contrasts 关系，evidence 带 question 与 turn_item_id",
     input: {
-      mode: "normal",
-      episode: LANGGRAPH_EPISODE,
-      learner_profile: PROFILE,
       item: {
         item_id: "item_B",
         type: "conversation",
@@ -596,248 +532,102 @@ export const knowledgeProcessingSamples: Sample<KnowledgeProcessingInput, Knowle
         user_highlights: [],
         user_note: null,
         fuzzy_notes: [],
-        requirement: null,
-        engagement: "strong"
+        requirement: null
       },
-      related_entries: [
-        { ...CHECKPOINT_ENTRY, similarity: 0.84, recency_relevance: 0.72 },
-        { ...HITL_ENTRY, similarity: 0.77, recency_relevance: 0.7 }
-      ],
+      related_entries: [CHECKPOINT_ENTRY, HITL_ENTRY],
       neighbor_entries: [{ entry_id: "kb_langgraph", name: "LangGraph", aliases: [] }],
       ignored_names: [],
       categories: CATEGORIES,
       kinds: KINDS
-    },
-    check: processingCheck({ decisions: ["supplement", "new"], contrasts: true, questionEvidence: true })
+    }
   }
 ];
 
-// ⑤ multistep samples, derived from the knowledge_processing samples above
+// ⑤ extract → align samples (17), derived from the sources above
 
 const stripExposure = (text: string) => text.replace(/ \[露出:[^\]]+\]/g, "");
-const proceeds = (sample: (typeof knowledgeProcessingSamples)[number]) => !/^(duplicate|reject)/.test(sample.name);
 
-export const knowledgeTriageSamples: Sample<KnowledgeTriageInput, KnowledgeTriageOutput>[] = knowledgeProcessingSamples.map(({ name, expected, input }) => {
-  const { content, turns, ...item } = input.item;
-  const decision = name.startsWith("reject") ? "reject" : name === "duplicate" ? "duplicate" : "proceed";
-  return {
-    name,
-    expected: `${decision}（${expected}）`,
-    input: {
-      step: "triage",
-      mode: input.mode,
-      episode: input.episode,
-      learner_profile: input.learner_profile,
-      item: { ...item, outline: content ? outlineOf(stripExposure(content)) : [], ...(content ? { excerpt: stripExposure(content) } : {}), ...(turns ? { turns } : {}) },
-      related_entries: input.related_entries.map(({ body_markdown: _body, ...entry }) => entry),
-      ignored_names: input.ignored_names
-    },
-    check: (output) => {
-      const problems = output.decision === decision ? [] : [`decision 应为 ${decision}，实际 ${output.decision}`];
-      if (output.decision === "proceed" && !output.thesis) problems.push("proceed 缺少 thesis");
-      return problems;
-    }
-  };
-});
-
-const squash = (text: string) => text.replace(/\s+/g, "");
-
-export const knowledgeExtractSamples: Sample<KnowledgeExtractInput, KnowledgeExtractOutput>[] = knowledgeProcessingSamples.filter(proceeds).map(({ name, input }) => {
-  const text = input.item.content ? stripExposure(input.item.content) : null;
-  const source = squash(text ?? (input.item.turns ?? []).map((turn) => turn.answer).join(""));
-  return {
-    name,
-    expected: "抽出非空知识点，quote 逐字来自原文",
-    input: {
-      step: "extract",
-      item: { item_id: input.item.item_id, type: input.item.type, source_kind: input.item.source_kind, title: input.item.title },
-      thesis: input.episode?.learning_goal ?? input.item.title,
-      user_focus: [],
-      user_highlights: input.item.user_highlights,
-      user_note: input.item.user_note,
-      chunk: { index: 0, total: 1, heading_path: [], text, turns: input.item.turns ?? null, context_question: null }
-    },
-    check: (output) => [
-      ...(output.points.length ? [] : ["没有知识点"]),
-      ...output.points.filter((point) => !source.includes(squash(point.quote))).map((point) => `quote 不在原文：${point.quote.slice(0, 40)}`)
-    ]
-  };
-});
-
-type RecordedProcessing = { output: KnowledgeProcessingOutput };
-function recordedProcessing(name: string): KnowledgeProcessingOutput | null {
-  try {
-    return (JSON.parse(readFileSync(new URL(`./knowledge_processing/${name}.json`, import.meta.url), "utf8")) as RecordedProcessing).output;
-  } catch {
-    return null;
-  }
+function sourcesOf(input: ProcessingSource["input"]): SourceText[] {
+  if (input.item.content) return [{ turnItemId: null, text: stripExposure(input.item.content) }];
+  return (input.item.turns ?? []).map((turn) => ({ turnItemId: turn.turn_item_id, text: turn.answer }));
 }
 
-/** Points come from the recorded knowledge_processing evidence (one core point per quote). */
-export const knowledgeComposeSamples: Sample<KnowledgeComposeInput, KnowledgeComposeOutput>[] = knowledgeProcessingSamples.filter(proceeds).flatMap(({ name, expected, input }) => {
-  const recorded = recordedProcessing(name);
-  if (!recorded || !("concepts" in recorded)) return [];
-  const points: KnowledgePoint[] = recorded.concepts.flatMap((concept) =>
-    concept.evidence.map((evidence) => ({ statement: evidence.quote, quote: evidence.quote, section: null, concept: concept.name, importance: "core" as const, turn_item_id: evidence.turn_item_id ?? null, question: evidence.question ?? null }))
-  ).map((point, index) => ({ id: `p${index + 1}`, ...point }));
-  const known = new Set([...input.related_entries, ...input.neighbor_entries].map((entry) => entry.entry_id));
-  return [
-    {
+export const knowledgeExtractSamples: Sample<KnowledgeExtractInput, KnowledgeExtractOutput>[] = processingSources.map(({ name, input }) => {
+  const sources = sourcesOf(input);
+  const lowInformation = name === "reject-low-information";
+  const instructions = [
+    ...(input.item.user_note ? [{ kind: "item_note" as const, text: input.item.user_note }] : []),
+    ...input.item.fuzzy_notes.map((text) => ({ kind: "fuzzy_note" as const, text })),
+    ...(input.item.requirement ? [{ kind: "requirement" as const, text: input.item.requirement }] : [])
+  ];
+  return {
+    name,
+    expected: lowInformation ? "无知识片段（全部 removed）" : "片段逐字来自原文，原文章节都被片段引用或列入 removed",
+    input: {
+      step: "extract",
+      item: { item_id: input.item.item_id, type: input.item.type, source_kind: input.item.source_kind, title: input.item.title, url: input.item.url ?? null },
+      text: input.item.content ? stripExposure(input.item.content) : null,
+      turns: input.item.turns ?? null,
+      user_highlights: input.item.user_highlights,
+      instructions,
+      ignored_names: input.ignored_names,
+      feedback: null
+    },
+    check: (output) =>
+      lowInformation
+        ? output.fragments.length
+          ? [`应无片段，实际 ${output.fragments.length} 个`]
+          : []
+        : checkExtract(output, sources, instructions.length > 0).problems
+  };
+});
+
+/** Fragments are the source sections (≥ 50 chars) cut verbatim; candidates carry their section lists. */
+export const knowledgeAlignSamples: Sample<KnowledgeAlignInput, KnowledgeAlignOutput>[] = processingSources
+  .filter((sample) => !/^(duplicate|reject)/.test(sample.name))
+  .map(({ name, expected, input }) => {
+    const fragments = sourceSections(sourcesOf(input)).map((section, index) => {
+      const heading = section.heading?.replace(/^#+\s*/, "") ?? input.item.title;
+      return { fragment_id: `f${index + 1}`, concept: heading, heading, excerpt: section.body.trim().slice(0, 300) };
+    });
+    const candidates = input.related_entries.map((entry) => ({
+      entry_id: entry.entry_id,
+      name: entry.name,
+      aliases: entry.aliases,
+      kind: entry.kind,
+      summary: entry.summary,
+      sections: entrySections(entry.body_markdown ?? "").map((section) => ({
+        section_id: section.sectionId,
+        heading: section.heading,
+        excerpt: section.markdown.slice(0, 200)
+      }))
+    }));
+    const names = [...candidates, ...input.neighbor_entries].flatMap((entry) => [entry.name, ...entry.aliases]);
+    const known = {
+      candidates: new Map(candidates.map((entry) => [entry.entry_id, new Set(entry.sections.map((section) => section.section_id))])),
+      neighborIds: new Set(input.neighbor_entries.map((entry) => entry.entry_id)),
+      takenNames: new Set(names.map(normalizeEntryName)),
+      ignoredNames: new Set(input.ignored_names.map(normalizeEntryName))
+    };
+    return {
       name,
       expected,
       input: {
-        step: "compose",
-        mode: input.mode,
-        learner_profile: input.learner_profile,
-        item: {
-          item_id: input.item.item_id,
-          type: input.item.type,
-          source_kind: input.item.source_kind,
-          title: input.item.title,
-          thesis: input.episode?.learning_goal ?? input.item.title,
-          user_focus: [],
-          requirement: input.item.requirement
-        },
-        points: points.map(({ id, statement, concept, importance, section }) => ({ id, statement, concept, importance, section })),
-        candidate_entries: input.related_entries.map(({ similarity: _s, recency_relevance: _r, ...entry }) => entry),
+        step: "align",
+        item: { item_id: input.item.item_id, type: input.item.type, source_kind: input.item.source_kind, title: input.item.title },
+        fragments,
+        candidate_entries: candidates,
         neighbor_entries: input.neighbor_entries,
-        ignored_names: input.ignored_names,
         categories: input.categories,
         kinds: input.kinds,
+        ignored_names: input.ignored_names,
         feedback: null
       },
-      check: (output) => [...validateCompose(output, points, known), ...missingPoints(output, points).map((point) => `遗漏 ${point.id}`)]
-    }
-  ];
-});
-
-// Entry Rewrite
-
-function rewriteEvidence(list: Array<Omit<EntryRewriteInput["evidence"][number], "id" | "point" | "importance">>): EntryRewriteInput["evidence"] {
-  return list.map((item, index) => ({ id: `e${index + 1}`, point: null, importance: "supporting", ...item }));
-}
-
-export const entryRewriteSamples: Sample<EntryRewriteInput, EntryRewriteOutput>[] = [
-  {
-    name: "manual-patched",
-    expected: "多次补丁后的 HITL 词条重新组织为 定义 / 实现 / 恢复 结构，合并「补充」章节，覆盖与 checkpoint 的关系",
-    input: {
-      entry: {
-        entry_id: "kb_hitl",
-        name: "Human-in-the-loop",
-        aliases: ["HITL", "人在回路"],
-        kind: "concept",
-        category: "Agent 框架",
-        summary: "在 Agent 执行过程中插入人工审批或输入节点，让人参与关键决策。",
-        patch_count: 9,
-        body_markdown:
-          "## 定义\n在 Agent 执行过程中插入人工审批或输入节点，由人确认后再继续。\n## 实现方式\n在需要人工介入的节点暂停执行，等待用户输入后继续。\nLangGraph 中用 interrupt() 暂停。\n## 常见场景\n- 工具调用前审批（如发邮件、付款）\n- 让用户修改 Agent 生成的计划\n## 补充\n恢复时用 Command(resume=...)。\n## 依赖 checkpoint 持久化\n暂停后的状态保存在 checkpointer 中，需要同一个 thread_id 才能恢复。\n## 补充\ninterrupt() 所在节点恢复时会从头执行，副作用要放在 interrupt() 之后。\n## 补充\n也可以直接编辑图状态再继续。"
-      },
-      trigger: "manual",
-      evidence: rewriteEvidence([
-        {
-          item_id: "item_C",
-          source_kind: "official_doc",
-          title: "Human-in-the-loop - LangGraph Docs",
-          quote:
-            "The interrupt() function pauses graph execution at a specific node and surfaces a value to the client. To resume, the client invokes the graph again with Command(resume=value).",
-          question: null
-        },
-        {
-          item_id: "item_C",
-          source_kind: "official_doc",
-          title: "Human-in-the-loop - LangGraph Docs",
-          quote:
-            "HITL requires a checkpointer: graph state is persisted at each step, so a paused run can be resumed later from the saved checkpoint using the same thread_id.",
-          question: null
-        },
-        {
-          item_id: "item_C",
-          source_kind: "official_doc",
-          title: "Human-in-the-loop - LangGraph Docs",
-          quote: "When resuming, the node containing interrupt() re-executes from the beginning, so side effects before interrupt() run again.",
-          question: null
-        },
-        {
-          item_id: "item_B2",
-          source_kind: "ai_answer",
-          title: "ChatGPT：checkpoint 和 interrupt 有什么区别？",
-          quote:
-            "用同一个 thread_id 调用 graph.invoke(Command(resume=value), config)，LangGraph 会加载该 thread 最新的 checkpoint，从被中断的节点重新开始执行。",
-          question: "interrupt 恢复时状态从哪里读？"
-        },
-        {
-          item_id: "item_hitl_blog",
-          source_kind: "blog",
-          title: "用 LangGraph 做审批流",
-          quote: "常见模式：审批 / 拒绝工具调用、编辑图状态后继续、让用户校验输入。",
-          question: null
-        }
-      ]),
-      entry_notes: ["希望讲清楚 HITL 和 checkpoint 的关系"],
-      requirement: "按 定义 / 实现 / 恢复与注意事项 / 常见场景 组织",
-      related_entry_names: ["Checkpoint", "interrupt()", "LangGraph"],
-      feedback: null
-    },
-    check: (output) => {
-      const problems: string[] = [];
-      if (output.body_markdown.includes("## 补充")) problems.push("仍保留「补充」章节");
-      if (!/checkpoint/i.test(output.body_markdown)) problems.push("正文未提及 checkpoint");
-      return problems;
-    }
-  },
-  {
-    name: "stale",
-    expected: "stale：删除已无来源支撑的「自动清理旧 checkpoint」内容，其余保留",
-    input: {
-      entry: {
-        entry_id: "kb_checkpoint",
-        name: "Checkpoint",
-        aliases: ["检查点", "checkpointer"],
-        kind: "concept",
-        category: "Agent 框架",
-        summary: "LangGraph 在每个 super-step 结束时保存图状态快照，用于记忆、容错与时间回溯。",
-        patch_count: 3,
-        body_markdown:
-          "## 定义\nLangGraph 在每个 super-step 结束时把图状态保存为 checkpoint，按 thread_id 组织。\n## Checkpointer 实现\n- MemorySaver：内存，测试用\n- SqliteSaver / PostgresSaver：持久化，生产用\n- PostgresSaver 默认 7 天后自动清理旧 checkpoint\n## 用途\n- 对话记忆（同一 thread 继续）\n- 失败后从最近 checkpoint 恢复\n- 时间回溯（replay / fork）\n- interrupt 暂停后的状态也保存在 checkpoint 中"
-      },
-      trigger: "stale",
-      evidence: rewriteEvidence([
-        {
-          item_id: "item_A",
-          source_kind: "official_doc",
-          title: "Persistence - LangGraph Docs",
-          quote:
-            "LangGraph has a built-in persistence layer, implemented through checkpointers. When you compile a graph with a checkpointer, the checkpointer saves a checkpoint of the graph state at every super-step. Those checkpoints are saved to a thread, which can be accessed after graph execution.",
-          question: null
-        },
-        {
-          item_id: "item_A",
-          source_kind: "official_doc",
-          title: "Persistence - LangGraph Docs",
-          quote: "Checkpointers enable human-in-the-loop workflows, conversational memory, time travel debugging, and fault-tolerant execution.",
-          question: null
-        },
-        {
-          item_id: "item_A",
-          source_kind: "official_doc",
-          title: "Persistence - LangGraph Docs",
-          quote: "MemorySaver is intended for experimentation; SqliteSaver and PostgresSaver are used in production.",
-          question: null
-        },
-        {
-          item_id: "item_B",
-          source_kind: "ai_answer",
-          title: "ChatGPT：checkpoint 和 interrupt 有什么区别？",
-          quote: "interrupt 依赖 checkpoint：没有 checkpointer 时暂停后的状态无处保存，也就无法恢复。",
-          question: "checkpoint 和 interrupt 有什么区别？"
-        }
-      ]),
-      entry_notes: [],
-      requirement: null,
-      related_entry_names: ["Human-in-the-loop", "interrupt()", "LangGraph"],
-      feedback: null
-    },
-    check: (output) => (/7 ?天|自动清理/.test(output.body_markdown) ? ["仍保留无来源支撑的「自动清理」内容"] : [])
-  }
-];
+      check: (output) =>
+        checkAlign(
+          output,
+          fragments.map((fragment) => fragment.fragment_id),
+          known
+        )
+    };
+  });

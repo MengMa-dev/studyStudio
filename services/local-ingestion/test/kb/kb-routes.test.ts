@@ -8,6 +8,9 @@ import {
   kbKindRenameResponseSchema,
   kbKindsResponseSchema,
   kbTreeResponseSchema,
+  NOTES_API,
+  noteSchema,
+  notesListResponseSchema,
   TRASH_API,
   trashListResponseSchema,
   trashRestoreResponseSchema,
@@ -77,14 +80,14 @@ test("GET /kb/kinds: seeds first, then by count; deleted entries ignored", async
     kinds.map((k) => [k.name, k.entryCount, k.seed]),
     [
       ["概念", 1, true],
+      ["原理", 0, true],
+      ["事实", 0, true],
       ["方法", 1, true],
-      ["算法", 0, true],
-      ["模型", 2, true],
-      ["论文", 1, true],
-      ["工具", 0, true],
-      ["库与框架", 0, true],
-      ["设计模式", 1, true],
-      ["最佳实践", 0, true],
+      ["技巧", 1, true],
+      ["规范", 0, true],
+      ["工具/资源", 3, true],
+      ["案例", 0, true],
+      ["复盘", 0, true],
       ["其他", 0, true],
       ["评测指标", 2, false],
       ["数据集", 1, false]
@@ -104,14 +107,15 @@ test("PATCH /kb/kinds: rename, merge, no-op, validation", async (t) => {
   };
   const kindOf = (id: string) => (appDb.db.prepare("SELECT kind FROM kb_entries WHERE id = ?").get(id) as { kind: string }).kind;
 
-  assert.equal(await rename({ from: "评测指标", to: "指标" }), 2);
-  assert.equal(kindOf("kb-bleu"), "指标");
-  assert.equal(await rename({ from: "数据集", to: "指标" }), 1);
-  assert.equal(kindOf("kb-imagenet"), "指标");
+  assert.equal(await rename({ from: "评测指标", to: "事实" }), 2);
+  assert.equal(kindOf("kb-bleu"), "事实");
+  assert.equal(await rename({ from: "数据集", to: "工具/资源" }), 1);
+  assert.equal(kindOf("kb-imagenet"), "工具/资源");
   assert.equal(kindOf("kb-dead"), "数据集", "deleted entries untouched");
-  assert.equal(await rename({ from: "模型", to: "模型" }), 0);
-  assert.equal(await rename({ from: "模型", to: "模型架构" }), 2, "legacy codes count as their Chinese name");
-  assert.equal(kindOf("kb-cross"), "模型架构");
+  assert.equal(await rename({ from: "工具/资源", to: "工具/资源" }), 0);
+  assert.equal(await rename({ from: "工具/资源", to: "案例" }), 4, "legacy codes count as their Chinese name");
+  assert.equal(kindOf("kb-cross"), "案例");
+  assert.equal(await rename({ from: "案例", to: "自定义" }), 422, "custom kinds are disabled");
   assert.equal(await rename({ from: "", to: "x" }), 422);
   assert.equal(await rename({ from: "a", to: "x".repeat(9) }), 422);
   assert.equal(await rename("{"), 400);
@@ -126,6 +130,33 @@ test("GET entry detail and 404", async (t) => {
   assert.equal((await call("GET", KB_API.entry("missing"))).status, 404);
 });
 
+test("POST /v1/notes: entry note anchored to a section shows up in the detail; invalid anchors → 422", async (t) => {
+  const { appDb, call } = setup(t);
+  appDb.db
+    .prepare("UPDATE kb_entries SET body_markdown = ? WHERE id = 'kb-rerank'")
+    .run("## 定义\n<!-- section:s_def00001 src:item-a -->\n召回后重排。");
+  const created = await call("POST", NOTES_API.create, { scope: "entry", targetId: "kb-rerank", text: "这节要补延迟数据", anchor: "s_def00001" });
+  assert.equal(created.status, 201);
+  const note = noteSchema.parse(await created.json());
+  assert.equal(note.anchor, "s_def00001");
+
+  const detail = kbEntryDetailSchema.parse(await (await call("GET", KB_API.entry("kb-rerank"))).json());
+  assert.deepEqual(detail.sections, [{ id: "s_def00001", heading: "定义", sourceItemIds: ["item-a"] }]);
+  assert.deepEqual(
+    detail.notes.map((n) => [n.text, n.anchor]),
+    [
+      ["重排要关注延迟", null],
+      ["这节要补延迟数据", "s_def00001"]
+    ]
+  );
+  const listed = notesListResponseSchema.parse(await (await call("GET", `${NOTES_API.list}?scope=entry&targetId=kb-rerank`)).json());
+  assert.equal(listed.notes.find((n) => n.id === note.id)?.anchor, "s_def00001");
+
+  const bad = async (body: Record<string, unknown>) => (await call("POST", NOTES_API.create, { text: "x", ...body })).status;
+  assert.equal(await bad({ scope: "entry", targetId: "kb-rerank", anchor: "s_missing0" }), 422);
+  assert.equal(await bad({ scope: "item", targetId: "item-a", anchor: "s_def00001" }), 422);
+});
+
 test("PATCH entry: body, mastery, validation", async (t) => {
   const { call } = setup(t);
   const patch: KbEntryPatch = { bodyMarkdown: "## 定义\n\n改过\n", mastery: 0.6 };
@@ -137,10 +168,11 @@ test("PATCH entry: body, mastery, validation", async (t) => {
   assert.equal(detail.mastery, 0.6);
   assert.equal(detail.masterySource, "user");
 
-  const kindRes = await call("PATCH", KB_API.patch("kb-rerank"), { kind: "评测指标" });
+  assert.equal((await call("PATCH", KB_API.patch("kb-rerank"), { kind: "评测指标" })).status, 422);
+  const kindRes = await call("PATCH", KB_API.patch("kb-rerank"), { kind: "事实" });
   assert.equal(kindRes.status, 200);
   const kindDetail = kbEntryDetailSchema.parse(await kindRes.json());
-  assert.equal(kindDetail.kind, "评测指标");
+  assert.equal(kindDetail.kind, "事实");
   assert.equal(kindDetail.userEdited, false);
 
   assert.equal((await call("PATCH", KB_API.patch("kb-rag"), {})).status, 422);

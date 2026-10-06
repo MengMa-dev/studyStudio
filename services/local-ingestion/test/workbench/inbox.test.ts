@@ -8,12 +8,14 @@ import {
   inboxBulkResponseSchema,
   inboxItemDetailSchema,
   inboxListResponseSchema,
+  parseSections,
   TRASH_API,
   trashListResponseSchema,
   trashPurgeResponseSchema,
   trashRestoreResponseSchema
 } from "@study-studio/shared";
 import { purgeExpiredTrash } from "../../src/domains/data/cleanup.js";
+import { mergeRestoredSections } from "../../src/domains/trash/items.js";
 import { registerTrashHandler } from "../../src/domains/trash/registry.js";
 import { insertTrashRow } from "../../src/domains/trash/store.js";
 import { setup } from "./helpers.js";
@@ -194,7 +196,7 @@ test("delete moves items to trash, updates the KB, and undo restores everything"
   assert.equal((await call("GET", INBOX_API.detail(p1))).status, 404);
   const flags = (id: string) => ({ ...(db.prepare("SELECT deleted_at IS NOT NULL AS deleted, stale, orphan FROM kb_entries WHERE id = ?").get(id) as object) });
   assert.deepEqual(flags("e-only"), { deleted: 1, stale: 0, orphan: 0 });
-  assert.deepEqual(flags("e-shared"), { deleted: 0, stale: 1, orphan: 0 });
+  assert.deepEqual(flags("e-shared"), { deleted: 0, stale: 0, orphan: 0 }, "source deletion no longer marks stale");
   assert.deepEqual(flags("e-edited"), { deleted: 0, stale: 0, orphan: 1 });
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM kb_entry_sources WHERE item_id = ?").get(p1)!.n, 0);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM kb_edges").get()!.n, 0, "edges of deleted entries and edges backed only by the item go");
@@ -216,6 +218,63 @@ test("delete moves items to trash, updates the KB, and undo restores everything"
   assert.deepEqual(restored, { restoredItemCount: 1, restoredNoteCount: 2, restoredEntryCount: 0 });
   assert.deepEqual(dump(db), before, "undo rolls every table back");
   assert.equal((await call("POST", TRASH_API.restore(deleted.trashId))).status, 404);
+});
+
+test("delete cascades by section: own sections go, shared sections drop the source; undo restores body and anchors", async (t) => {
+  const { call, db, p1, p2, p3 } = await seed(t);
+  const body = [
+    "## 定义",
+    `<!-- section:s_def src:${p1},${p2} -->`,
+    "共享章节",
+    "",
+    "## 搭建",
+    `<!-- section:s_build src:${p1} -->`,
+    "只来自 p1",
+    "",
+    "## 用法",
+    `<!-- section:s_use src:${p2} -->`,
+    "只来自 p2"
+  ].join("\n");
+  const entry = db.prepare("INSERT INTO kb_entries(id, name, body_markdown, user_edited, updated_at) VALUES (?, ?, ?, 0, '2026-09-30T00:00:00.000Z')");
+  entry.run("e-sec", "LLM Wiki", body);
+  entry.run("e-empty", "只有 p1", `## 唯一\n<!-- section:s_only src:${p1} -->\n内容`);
+  const source = db.prepare("INSERT INTO kb_entry_sources(entry_id, item_id, evidence, source_kind, added_at) VALUES (?, ?, '[]', 'blog', '2026-09-30')");
+  source.run("e-sec", p1);
+  source.run("e-sec", p2);
+  source.run("e-empty", p1);
+  source.run("e-empty", p3);
+  const note = db.prepare("INSERT INTO notes(id, scope, target_id, text, origin, anchor, created_at) VALUES (?, 'entry', 'e-sec', ?, 'manual', ?, '2026-09-30T00:00:00.000Z')");
+  note.run("n-build", "搭建备注", "s_build");
+  note.run("n-def", "定义备注", "s_def");
+
+  const impact = deleteImpactResponseSchema.parse((await call("GET", `${INBOX_API.impact}?ids=${p1}`)).body);
+  assert.deepEqual(impact.entriesToDelete.map((row) => row.id), ["e-empty"], "an entry emptied by the cascade is deleted even with other sources");
+  assert.deepEqual(impact.entriesToStale.map((row) => row.id), ["e-sec"]);
+
+  const before = dump(db);
+  const deleted = deleteItemsResponseSchema.parse((await call("DELETE", INBOX_API.delete, { ids: [p1] })).body);
+  const row = db.prepare("SELECT body_markdown, stale, deleted_at FROM kb_entries WHERE id = 'e-sec'").get() as { body_markdown: string; stale: number; deleted_at: null };
+  assert.equal(row.stale, 0);
+  assert.equal(row.body_markdown, ["## 定义", `<!-- section:s_def src:${p2} -->`, "共享章节", "", "## 用法", `<!-- section:s_use src:${p2} -->`, "只来自 p2"].join("\n"));
+  const anchors = () => db.prepare("SELECT id, anchor FROM notes WHERE target_id = 'e-sec' ORDER BY id").all().map((n) => ({ ...n }));
+  assert.deepEqual(anchors(), [
+    { id: "n-build", anchor: null },
+    { id: "n-def", anchor: "s_def" }
+  ]);
+  assert.ok(db.prepare("SELECT deleted_at FROM kb_entries WHERE id = 'e-empty'").get()!.deleted_at);
+
+  trashRestoreResponseSchema.parse((await call("POST", TRASH_API.restore(deleted.trashId))).body);
+  assert.deepEqual(dump(db), before, "undo restores bodies, anchors and entries");
+
+  const again = deleteItemsResponseSchema.parse((await call("DELETE", INBOX_API.delete, { ids: [p1] })).body);
+  const edited = `${(db.prepare("SELECT body_markdown FROM kb_entries WHERE id = 'e-sec'").get() as { body_markdown: string }).body_markdown}\n\n## 新章节\n手写`;
+  db.prepare("UPDATE kb_entries SET body_markdown = ? WHERE id = 'e-sec'").run(edited);
+  trashRestoreResponseSchema.parse((await call("POST", TRASH_API.restore(again.trashId))).body);
+  const merged = (db.prepare("SELECT body_markdown FROM kb_entries WHERE id = 'e-sec'").get() as { body_markdown: string }).body_markdown;
+  assert.ok(merged.includes("## 新章节\n手写"), "edits made after the delete survive");
+  assert.ok(merged.includes(`<!-- section:s_def src:${p2},${p1} -->`), "source re-added to the shared section");
+  assert.ok(merged.includes(`<!-- section:s_build src:${p1} -->\n只来自 p1`), "removed section appended back");
+  assert.equal(anchors()[0]!.anchor, "s_build");
 });
 
 test("purge removes trashed rows physically; restore conflicts when the page was recaptured", async (t) => {
@@ -284,4 +343,19 @@ test("trash rows go through the registered handler, 501 for unknown kinds", asyn
   assert.deepEqual(restored, { restoredItemCount: 0, restoredNoteCount: 0, restoredEntryCount: 2 });
   assert.deepEqual(seen, ["restore:e1,e2"]);
   assert.equal(trashListResponseSchema.parse((await call("GET", TRASH_API.list)).body).entries.length, 0);
+});
+
+test("restore into an edited entry does not re-append a section whose text is already there", () => {
+  const before = "## 定义\n<!-- section:s_a src:item_1 -->\n检索增强生成：先检索相关文档，再交给模型回答。";
+  const covered = "## 概念\n<!-- section:s_b src:item_2 -->\n检索增强生成：先检索相关文档，再交给模型回答。另有补充。";
+  const merged = parseSections(mergeRestoredSections(covered, before, ["item_1"]));
+  assert.deepEqual(
+    merged.map((section) => [section.id, section.sourceItemIds]),
+    [["s_b", ["item_2", "item_1"]]]
+  );
+  const unrelated = "## 概念\n<!-- section:s_b src:item_2 -->\n完全不同的内容。";
+  assert.deepEqual(
+    parseSections(mergeRestoredSections(unrelated, before, ["item_1"])).map((section) => section.id),
+    ["s_b", "s_a"]
+  );
 });

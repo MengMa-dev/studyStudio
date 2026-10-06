@@ -28,7 +28,9 @@ export const createNoteRequestSchema = z.object({
   scope: noteScopeSchema,
   targetId: z.string().min(1).nullable().optional(),
   text: z.string().trim().min(1).max(4000),
-  origin: noteOriginSchema.default("workbench")
+  origin: noteOriginSchema.default("workbench"),
+  /** Entry notes only: section id (`<!-- section:… -->`) to pin the note to. */
+  anchor: z.string().min(1).max(64).nullable().optional()
 });
 export type CreateNoteRequest = z.infer<typeof createNoteRequestSchema>;
 

@@ -11,6 +11,7 @@ import {
   kbKindsResponseSchema,
   kbTreeQuerySchema,
   kbTreeResponseSchema,
+  parseSections,
   SEED_KINDS,
   type KbDeleteRequestInput,
   type KbEntryKind,
@@ -100,7 +101,7 @@ function createEntries(): MockEntry[] {
       categoryId: "cat-retrieval",
       summary: "对召回阶段返回的候选做二次精排，用更重的模型换取更高的排序精度。",
       bodyMarkdown:
-        "## 定义\n\n重排（Rerank）位于检索流水线的第二阶段：召回先用 ANN 索引在毫秒级拿到几百条候选，重排再用更重的模型对候选逐一打分。\n\n## 常见做法\n\n- **交叉编码器**：查询与文档拼接后联合编码，精度最高；\n- **LLM 打分**：直接让大模型给出相关性；\n- **规则融合**：按时间、来源权重调整分数。\n\n## 适用场景\n\n| 场景 | 是否需要重排 |\n| --- | --- |\n| 问答 / RAG | 强烈建议 |\n| 关键词搜索 | 视候选量而定 |",
+        "## 定义\n<!-- section:s_rerank01 src:item-q2 -->\n\n重排（Rerank）位于检索流水线的第二阶段：召回先用 ANN 索引在毫秒级拿到几百条候选，重排再用更重的模型对候选逐一打分。\n\n## 常见做法\n\n- **交叉编码器**：查询与文档拼接后联合编码，精度最高；\n- **LLM 打分**：直接让大模型给出相关性；\n- **规则融合**：按时间、来源权重调整分数。\n\n## 适用场景\n\n| 场景 | 是否需要重排 |\n| --- | --- |\n| 问答 / RAG | 强烈建议 |\n| 关键词搜索 | 视候选量而定 |",
       mastery: 0.55,
       patchCount: 3,
       completeness: { covered: ["定义", "常见做法", "适用场景"], missing: ["性能开销"] },
@@ -117,12 +118,12 @@ function createEntries(): MockEntry[] {
       id: "kb-cross",
       name: "交叉编码器",
       aliases: ["Cross-Encoder"],
-      kind: "模型",
+      kind: "原理",
       categoryId: "cat-retrieval",
       parentId: "kb-rerank",
       summary: "把查询和文档拼接后送入同一个 Transformer，直接输出相关性分数。",
       bodyMarkdown:
-        '## 定义\n\n交叉编码器（Cross-Encoder）把 `[CLS] query [SEP] doc` 拼接后一起编码，由分类头输出相关性分数 $s = \\sigma(W h_{[CLS]})$。\n\n## 用法\n\n```python\nfrom sentence_transformers import CrossEncoder\n\nmodel = CrossEncoder("BAAI/bge-reranker-base")\nscores = model.predict([(query, doc) for doc in candidates])\n```\n\n## 代价\n\n每个查询-文档对都要完整跑一遍模型，复杂度 $O(N)$，所以只对召回得到的少量候选使用。\n\n## 补充\n\n- 输入长度通常限制在 512 token；\n- 长文档需要先切块再取最高分。',
+        '## 定义\n<!-- section:s_cross001 src:item-q1 -->\n\n交叉编码器（Cross-Encoder）把 `[CLS] query [SEP] doc` 拼接后一起编码，由分类头输出相关性分数 $s = \\sigma(W h_{[CLS]})$。\n\n## 用法\n<!-- section:s_cross002 src:item-p2 -->\n\n```python\nfrom sentence_transformers import CrossEncoder\n\nmodel = CrossEncoder("BAAI/bge-reranker-base")\nscores = model.predict([(query, doc) for doc in candidates])\n```\n\n## 代价\n\n每个查询-文档对都要完整跑一遍模型，复杂度 $O(N)$，所以只对召回得到的少量候选使用。\n\n## 补充\n\n- 输入长度通常限制在 512 token；\n- 长文档需要先切块再取最高分。',
       mastery: 0.65,
       patchCount: KB_REWRITE_SUGGEST_PATCH_COUNT,
       completeness: { covered: ["定义", "用法", "代价"], missing: ["训练方式"] },
@@ -146,7 +147,7 @@ function createEntries(): MockEntry[] {
       id: "kb-bge",
       name: "bge-reranker",
       aliases: ["BGE Reranker"],
-      kind: "模型",
+      kind: "工具/资源",
       categoryId: "cat-retrieval",
       parentId: "kb-cross",
       summary: "智源开源的交叉编码器重排模型，中英文效果都不错。",
@@ -159,7 +160,7 @@ function createEntries(): MockEntry[] {
       id: "kb-bi",
       name: "双塔模型",
       aliases: ["Bi-Encoder", "双编码器"],
-      kind: "模型",
+      kind: "原理",
       categoryId: "cat-retrieval",
       summary: "查询与文档分别编码成向量，文档向量可离线预计算。",
       bodyMarkdown:
@@ -171,7 +172,7 @@ function createEntries(): MockEntry[] {
       id: "kb-bm25",
       name: "BM25",
       aliases: ["Okapi BM25"],
-      kind: "算法",
+      kind: "方法",
       categoryId: "cat-retrieval",
       summary: "经典的词频-逆文档频率检索打分函数。",
       bodyMarkdown:
@@ -189,7 +190,7 @@ function createEntries(): MockEntry[] {
       id: "kb-hnsw",
       name: "HNSW",
       aliases: ["分层可导航小世界图"],
-      kind: "算法",
+      kind: "方法",
       categoryId: "cat-retrieval",
       summary: "分层可导航小世界图索引，近似最近邻检索的主流方案。",
       bodyMarkdown:
@@ -221,7 +222,7 @@ function createEntries(): MockEntry[] {
       id: "kb-rrf",
       name: "RRF 融合",
       aliases: ["Reciprocal Rank Fusion"],
-      kind: "算法",
+      kind: "方法",
       categoryId: "cat-retrieval",
       parentId: "kb-hybrid",
       summary: "按各路结果中的排名倒数求和来融合多路检索结果。",
@@ -282,7 +283,7 @@ function createEntries(): MockEntry[] {
       id: "kb-react",
       name: "ReAct",
       aliases: ["Reason + Act"],
-      kind: "论文",
+      kind: "方法",
       categoryId: "cat-agent",
       summary: "交替进行推理与行动的提示范式，Agent 的基础模式之一。",
       bodyMarkdown: "## 核心思想\n\n模型交替输出 `Thought → Action → Observation`，直到给出最终答案。",
@@ -292,7 +293,7 @@ function createEntries(): MockEntry[] {
     entry({
       id: "kb-transformer",
       name: "Transformer",
-      kind: "模型",
+      kind: "原理",
       categoryId: "cat-llm",
       summary: "完全基于注意力机制的序列建模架构。",
       bodyMarkdown: "## 结构\n\n- 编码器 / 解码器堆叠；\n- 每层包含多头自注意力与前馈网络；\n- 残差连接 + LayerNorm。",
@@ -309,7 +310,7 @@ function createEntries(): MockEntry[] {
       id: "kb-attn",
       name: "自注意力",
       aliases: ["Self-Attention", "Scaled Dot-Product Attention"],
-      kind: "算法",
+      kind: "原理",
       categoryId: "cat-llm",
       parentId: "kb-transformer",
       summary: "序列中每个位置对所有位置加权求和，权重由 Q、K 的相似度决定。",
@@ -327,7 +328,7 @@ function createEntries(): MockEntry[] {
     entry({
       id: "kb-aiayn",
       name: "Attention Is All You Need",
-      kind: "论文",
+      kind: "工具/资源",
       categoryId: "cat-llm",
       summary: "2017 年提出 Transformer 的论文。",
       bodyMarkdown: "## 贡献\n\n- 提出 Transformer；\n- 用多头注意力替代 RNN，训练可并行。",
@@ -412,7 +413,9 @@ function liveSources(target: MockEntry): Array<SourceRef & { item: MockItem }> {
 }
 
 function entryNotes(id: string): Note[] {
-  return getMockState().notes.filter((note) => note.scope === "entry" && note.targetId === id);
+  return getMockState().notes.filter(
+    (note) => note.scope === "entry" && note.targetId === id && note.origin !== "organize_requirement" && note.origin !== "derived"
+  );
 }
 
 /** Applies a restore done through the shared trash (`restoreTrash`) and forgets purged KB trash. */
@@ -467,8 +470,9 @@ function toFlat(target: MockEntry): KbFlatEntry {
 function categoryNodes(): KbTreeCategoryNode[] {
   const groups: Array<{ id: string | null; name: string; description: string | null }> = [...CATEGORIES];
   if (entries.some((candidate) => candidate.categoryId === null)) groups.push({ id: null, name: "未归类", description: "整理时未能归入已有分类的词条" });
-  return groups.map((category) => {
+  return groups.flatMap((category) => {
     const members = entries.filter((candidate) => candidate.categoryId === category.id);
+    if (!members.length) return [];
     const scored = members.filter((candidate) => candidate.mastery !== null);
     const memberIds = new Set(members.map((candidate) => candidate.id));
     return {
@@ -576,6 +580,9 @@ function detailOf(id: string) {
       addedAt: source.item.capturedAt,
       evidence: source.evidence
     })),
+    sections: parseSections(target.bodyMarkdown).flatMap((section) =>
+      section.id ? [{ id: section.id, heading: section.heading ?? "", sourceItemIds: section.sourceItemIds }] : []
+    ),
     relations: relationsOf(target),
     sameCategory: entries
       .filter((candidate) => candidate.categoryId === target.categoryId && candidate.id !== target.id)
@@ -614,21 +621,17 @@ export function mockKbDirtyCount(): number {
   return entries.filter((candidate) => candidate.dirty).length;
 }
 
-/** Rewrites entries: `user_edited` bodies are kept and only get a「整理建议」section (07 ⑦). */
+/** 整理结构 (17): reorders sections only, text is never changed. */
 export function mockRewriteEntries(ids: string[], finishedAt: string): Array<{ entryId: string; name: string; change: "rewritten" }> {
   const now = finishedAt;
   return ids.flatMap((id) => {
     const target = entries.find((candidate) => candidate.id === id);
     if (!target) return [];
-    if (target.userEdited && !target.bodyMarkdown.includes("## 整理建议")) {
-      target.bodyMarkdown += "\n\n## 整理建议\n\n- （演示）来源中提到的要点已合并到上方，你手动编辑的内容未被覆盖。";
-    }
     target.dirty = false;
     target.stale = false;
     target.patchCount = 0;
     target.updatedAt = now;
     if (target.masterySource === "auto" && target.mastery !== null) target.mastery = Math.min(1, target.mastery + 0.03);
-    for (const note of entryNotes(id)) note.usedAt = now;
     return [{ entryId: id, name: target.name, change: "rewritten" as const }];
   });
 }

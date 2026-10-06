@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { SEED_KINDS } from "@study-studio/shared";
 import { EditorView } from "codemirror";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockApi, resetMockState } from "@/api";
@@ -39,7 +40,7 @@ describe("KbEntryPage 词条详情", () => {
     renderWithQuery(<KbEntryPage entryId="kb-cross" />);
     await screen.findByRole("heading", { level: 1, name: "交叉编码器" });
     expect(screen.getByRole("heading", { level: 3, name: "与 双塔模型 的区别" })).toBeInTheDocument();
-    expect(screen.getByText(/建议重新整理/)).toBeInTheDocument();
+    expect(screen.getByText(/建议整理结构/)).toBeInTheDocument();
     expect(document.querySelectorAll(".kb-source").length).toBeGreaterThan(0);
     expect(screen.getByText("在图谱中查看")).toBeInTheDocument();
     expect((await screen.findByTestId("kb-graph")).textContent?.split(",").sort()).toEqual(["kb-attn", "kb-bge", "kb-bi", "kb-cross", "kb-rerank"]);
@@ -50,14 +51,60 @@ describe("KbEntryPage 词条详情", () => {
     expect(screen.queryByRole("tree")).toBeNull();
   });
 
+  it("边注：来源卡片与章节备注挂在对应章节旁，标记行不显示，整篇备注在正文下方", async () => {
+    await mockApi.createNote({ scope: "entry", targetId: "kb-cross", text: "用法这节要再看", origin: "workbench", anchor: "s_cross002" });
+    await mockApi.createNote({ scope: "entry", targetId: "kb-cross", text: "整篇都很重要", origin: "workbench" });
+    renderWithQuery(<KbEntryPage entryId="kb-cross" />);
+    await screen.findByRole("heading", { level: 1, name: "交叉编码器" });
+
+    expect(document.body.textContent).not.toContain("section:");
+    expect(within(document.querySelector<HTMLElement>('[data-section-id="s_cross001"]')!).getByRole("heading", { level: 2, name: "定义" })).toBeInTheDocument();
+    const margin = screen.getByRole("complementary", { name: "边注" });
+    const define = within(margin.querySelector<HTMLElement>('[data-margin-for="s_cross001"]')!);
+    expect(define.getByText("什么是交叉编码器？")).toBeInTheDocument();
+    expect(define.getByText("问：什么是交叉编码器？")).toBeInTheDocument();
+    const usage = within(margin.querySelector<HTMLElement>('[data-margin-for="s_cross002"]')!);
+    expect(usage.getByText("交叉编码器和双塔模型应该怎么选？")).toBeInTheDocument();
+    expect(usage.getByText("用法这节要再看")).toBeInTheDocument();
+    expect(within(margin).queryByText("整篇都很重要")).toBeNull();
+    expect(within(margin).queryByText("其他来源")).toBeNull();
+    expect(screen.getByText("整篇都很重要")).toBeInTheDocument();
+    expect(screen.queryByText("来源与摘录")).toBeNull();
+    expect(screen.queryByText("常用 bge-reranker、ms-marco-MiniLM")).toBeNull();
+  });
+
+  it("不属于任何章节的来源列在「其他来源」", async () => {
+    renderWithQuery(<KbEntryPage entryId="kb-rerank" />);
+    await screen.findByRole("heading", { level: 1, name: "重排" });
+    const others = within(screen.getByRole("complementary", { name: "边注" }).querySelector<HTMLElement>(".kb-margin-others")!);
+    expect(others.getByText("其他来源")).toBeInTheDocument();
+    expect(others.getByText("交叉编码器和双塔模型应该怎么选？")).toBeInTheDocument();
+  });
+
+  it("在边注添加章节备注，请求带 anchor", async () => {
+    const spy = vi.spyOn(mockApi, "createNote");
+    renderWithQuery(<KbEntryPage entryId="kb-cross" />);
+    await screen.findByRole("heading", { level: 1, name: "交叉编码器" });
+    const usage = within(screen.getByRole("complementary", { name: "边注" }).querySelector<HTMLElement>('[data-margin-for="s_cross002"]')!);
+    fireEvent.click(usage.getByRole("button", { name: "+ 添加备注" }));
+    fireEvent.change(usage.getByLabelText("新备注"), { target: { value: "记得对比 ColBERT" } });
+    fireEvent.click(usage.getByRole("button", { name: "添加备注" }));
+
+    expect(await usage.findByText("记得对比 ColBERT", { selector: ".note > div" })).toBeInTheDocument();
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ scope: "entry", targetId: "kb-cross", anchor: "s_cross002" }));
+    expect((await mockApi.getKbEntry("kb-cross")).notes.find((note) => note.text === "记得对比 ColBERT")?.anchor).toBe("s_cross002");
+    spy.mockRestore();
+  });
+
   it("点击来源的对比按钮，全屏弹窗左右展示整理内容与原文", async () => {
     renderWithQuery(<KbEntryPage entryId="kb-cross" />);
     await screen.findByRole("heading", { level: 1, name: "交叉编码器" });
     const entry = await mockApi.getKbEntry("kb-cross");
-    const source = entry.sources[0]!;
+    const source = entry.sources.find((candidate) => candidate.itemId === "item-p2")!;
     const original = await mockApi.getInboxItem(source.itemId);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "对比" })[0]!);
+    const usage = document.querySelector<HTMLElement>('[data-margin-for="s_cross002"]')!;
+    fireEvent.click(within(usage).getByRole("button", { name: "对比原文" }));
     const dialog = await screen.findByRole("dialog", { name: "对比：交叉编码器" });
     const left = within(dialog).getByRole("region", { name: "知识库整理内容" });
     const right = within(dialog).getByRole("region", { name: "来源原文" });
@@ -93,22 +140,22 @@ describe("KbEntryPage 词条详情", () => {
     expect(await screen.findByText("关键词与向量各取所长。")).toBeInTheDocument();
   });
 
-  it("编辑态改类型：datalist 列出已有类型，可输入新类型，保存后头部标签更新且不标记手动编辑", async () => {
+  it("编辑态改类型：只能从内置类型中选择，保存后头部标签更新且不标记手动编辑", async () => {
     renderWithQuery(<KbEntryPage entryId="kb-hybrid" />);
     await screen.findByRole("heading", { level: 1, name: "混合检索" });
     fireEvent.click(screen.getByRole("button", { name: "编辑" }));
 
-    const input = screen.getByLabelText("类型");
-    expect(input).toHaveValue("方法");
-    await waitFor(() => expect(document.querySelector('#kb-kind-options option[value="论文"]')).not.toBeNull());
+    const select = screen.getByLabelText<HTMLSelectElement>("类型");
+    expect(select).toHaveValue("方法");
+    expect([...select.options].map((option) => option.value)).toEqual([...SEED_KINDS]);
 
-    fireEvent.change(input, { target: { value: " 评测指标 " } });
+    fireEvent.change(select, { target: { value: "技巧" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(screen.queryByLabelText("类型")).toBeNull());
-    expect(screen.getByText("评测指标")).toHaveClass("tag");
+    expect(screen.getByText("技巧")).toHaveClass("tag");
 
     const saved = await mockApi.getKbEntry("kb-hybrid");
-    expect(saved.kind).toBe("评测指标");
+    expect(saved.kind).toBe("技巧");
     expect(saved.userEdited).toBe(false);
   });
 

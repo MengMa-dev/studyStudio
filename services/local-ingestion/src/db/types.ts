@@ -92,6 +92,7 @@ export type NoteRow = {
   text: string;
   origin: string;
   derived_from: string | null;
+  anchor: string | null;
   used_at: string | null;
   created_at: string;
   updated_at: string | null;

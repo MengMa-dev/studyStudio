@@ -6,11 +6,13 @@ import {
   type KbBreadcrumb,
   type KbCompleteness,
   type KbEntryDetail,
+  type KbEntrySection,
   type KbEntrySource,
   type KbEvidence,
   type KbRelation,
   type KbRenderedSections,
-  type NoteSummary
+  type NoteSummary,
+  parseSections
 } from "@study-studio/shared";
 import type { ItemType, KbEntryRow, NoteRow } from "../../db/types.js";
 import type { MasterySignals } from "./mastery.js";
@@ -77,6 +79,7 @@ function toNoteSummary(row: NoteRow): NoteSummary {
     targetId: row.target_id,
     text: row.text,
     origin: row.origin,
+    anchor: row.anchor ?? null,
     usedAt: row.used_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -174,9 +177,18 @@ export function getKbEntryDetail(db: DatabaseSync, id: string): KbEntryDetail | 
   }
 
   const sources = loadSources(db, id);
+  // Organize requirements and notes derived from item notes steer organizing only; the entry page never shows them (17).
   const notes = (
-    db.prepare("SELECT * FROM notes WHERE scope = 'entry' AND target_id = ? AND deleted_at IS NULL ORDER BY created_at, id").all(id) as NoteRow[]
+    db
+      .prepare(
+        "SELECT * FROM notes WHERE scope = 'entry' AND target_id = ? AND deleted_at IS NULL AND origin NOT IN ('organize_requirement', 'derived') ORDER BY created_at, id"
+      )
+      .all(id) as NoteRow[]
   ).map(toNoteSummary);
+  const bodyMarkdown = entry.body_markdown ?? "";
+  const sections: KbEntrySection[] = parseSections(bodyMarkdown).flatMap((section) =>
+    section.id ? [{ id: section.id, heading: section.heading ?? "", sourceItemIds: section.sourceItemIds }] : []
+  );
 
   const categoryId = category?.id ?? null;
   const sameCategory = alive
@@ -196,7 +208,7 @@ export function getKbEntryDetail(db: DatabaseSync, id: string): KbEntryDetail | 
     categoryName: category ? (category.name ?? "") : null,
     breadcrumb: breadcrumbOf(entry, categoryId, category ? (category.name ?? "") : null, names, db),
     summary: entry.summary,
-    bodyMarkdown: entry.body_markdown ?? "",
+    bodyMarkdown,
     renderedSections: { contrasts, faqs: renderFaqs(sources) },
     completeness: parseCompleteness(entry.completeness),
     mastery: masteryOf(entry, signals),
@@ -210,6 +222,7 @@ export function getKbEntryDetail(db: DatabaseSync, id: string): KbEntryDetail | 
     updatedAt: entry.updated_at,
     notes,
     sources,
+    sections,
     relations,
     sameCategory
   };

@@ -1,20 +1,19 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { sourceKindOf, type OrganizeRunEntryChange } from "@study-studio/shared";
-import type { KnowledgeProcessingOutput, PointImportance } from "../../ai/prompts/schemas.draft.js";
+import { appendSections, attachSectionSources, sourceKindOf, type OrganizeRunEntryChange } from "@study-studio/shared";
 import { withTransaction } from "../../db/database.js";
 import { normalizeKind } from "../kb/queries.js";
-import { decideAlignment, demoteNewBodyToSupplement } from "./align.js";
-import { kindVocabulary, resolveKind } from "./kinds.js";
+import { decideAlignment } from "./align.js";
+import { resolveKind } from "./kinds.js";
 import { normalizeEntryName } from "./normalize.js";
-import { applyPatchOps } from "./patch.js";
-import { findEntryByName, listAliveEntries, loadEntry, type EntryRecord, type OrganizeItem } from "./store.js";
-import type { PatchOp } from "./types.js";
+import { findEntryByName, listAliveEntries, loadEntry, parseJson, type OrganizeItem } from "./store.js";
+import { entrySections, verbatimRatio, VERBATIM_MIN_RATIO, type AlignedFragment, type ProcessingResult } from "./verify.js";
 
 /** ⑥ Knowledge Integration: one transaction per work unit (KB writes + organize_results + inbox status). */
 
-export type StoredEvidence = { quote: string; question?: string; turnItemId?: string; point?: string; importance?: PointImportance };
-type ModelEvidence = { quote: string; question?: string | null; turn_item_id?: string | null; point?: string | null; importance?: PointImportance | null };
+/** `kb_entry_sources.evidence` row: section-level (17) or a quote (prefilter duplicates / legacy). */
+export type StoredEvidence = { quote: string; section_id?: string | null; heading?: string; question?: string; turnItemId?: string };
+type ModelEvidence = { quote: string; question?: string | null; turn_item_id?: string | null };
 
 export type EntryChange = { entryId: string; name: string; change: OrganizeRunEntryChange["change"] };
 
@@ -53,16 +52,6 @@ export type IntegrationResult = {
   touchedEntryIds: string[];
 };
 
-function toStoredEvidence(evidence: ModelEvidence): StoredEvidence {
-  return {
-    quote: evidence.quote,
-    ...(evidence.question ? { question: evidence.question } : {}),
-    ...(evidence.turn_item_id ? { turnItemId: evidence.turn_item_id } : {}),
-    ...(evidence.point ? { point: evidence.point } : {}),
-    ...(evidence.importance ? { importance: evidence.importance } : {})
-  };
-}
-
 function resolveCategory(db: DatabaseSync, name: string | null | undefined): string | null {
   const trimmed = name?.trim();
   if (!trimmed) return null;
@@ -75,105 +64,92 @@ function resolveCategory(db: DatabaseSync, name: string | null | undefined): str
   return id;
 }
 
-/** Collects (entry, source item) evidence for one unit, written once at the end. */
+const sameEvidence = (a: StoredEvidence, b: StoredEvidence) => (a.section_id ? b.section_id === a.section_id : b.quote === a.quote);
+
+/** Collects (entry, source item) evidence for one unit, merged into the stored rows at the end. */
 class SourceBuffer {
   private readonly rows = new Map<string, { entryId: string; itemId: string; evidence: StoredEvidence[] }>();
 
   constructor(private readonly items: OrganizeItem[]) {}
 
-  add(entryId: string, evidence: ModelEvidence[]): void {
+  /** Unknown / missing turn ids fall back to the anchor item. */
+  itemIdOf(turnItemId: string | null | undefined): string {
+    return turnItemId && this.items.some((item) => item.id === turnItemId) ? turnItemId : this.items[0]!.id;
+  }
+
+  add(entryId: string, itemId: string, stored: StoredEvidence): void {
+    const key = `${entryId}\0${itemId}`;
+    const row = this.rows.get(key) ?? { entryId, itemId, evidence: [] };
+    if (!row.evidence.some((existing) => sameEvidence(stored, existing))) row.evidence.push(stored);
+    this.rows.set(key, row);
+  }
+
+  /** Conversation turns also carry the question so the source card can show it and link the turn. */
+  addSection(entryId: string, itemId: string, sectionId: string | null, heading: string): void {
+    const item = this.items.find((candidate) => candidate.id === itemId)!;
+    this.add(entryId, itemId, {
+      section_id: sectionId,
+      heading,
+      quote: heading,
+      ...(item.type === "conversation" ? { question: item.question ?? item.title, turnItemId: item.id } : {})
+    });
+  }
+
+  addQuotes(entryId: string, evidence: ModelEvidence[]): void {
     const anchor = this.items[0]!;
-    const known = new Set(this.items.map((item) => item.id));
     const list = evidence.length ? evidence : [{ quote: anchor.highlights[0] ?? anchor.title }];
     for (const entry of list) {
-      const itemId = entry.turn_item_id && known.has(entry.turn_item_id) ? entry.turn_item_id : anchor.id;
-      const key = `${entryId}\0${itemId}`;
-      const row = this.rows.get(key) ?? { entryId, itemId, evidence: [] };
-      const stored = toStoredEvidence(entry);
-      if (!row.evidence.some((existing) => existing.quote === stored.quote)) row.evidence.push(stored);
-      this.rows.set(key, row);
+      this.add(entryId, this.itemIdOf(entry.turn_item_id), {
+        quote: entry.quote,
+        ...(entry.question ? { question: entry.question } : {}),
+        ...(entry.turn_item_id ? { turnItemId: entry.turn_item_id } : {})
+      });
     }
   }
 
   flush(db: DatabaseSync, now: string): void {
     const byId = new Map(this.items.map((item) => [item.id, item]));
+    const select = db.prepare("SELECT evidence FROM kb_entry_sources WHERE entry_id = ? AND item_id = ?");
     const upsert = db.prepare(
       `INSERT INTO kb_entry_sources(entry_id, item_id, evidence, source_kind, added_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(entry_id, item_id) DO UPDATE SET evidence = excluded.evidence, source_kind = excluded.source_kind, added_at = excluded.added_at`
     );
     for (const row of this.rows.values()) {
       const item = byId.get(row.itemId)!;
-      upsert.run(row.entryId, row.itemId, JSON.stringify(row.evidence), sourceKindOf(item.type, item.url), now);
+      const stored = parseJson<unknown>((select.get(row.entryId, row.itemId) as { evidence: string | null } | undefined)?.evidence, []);
+      const kept = (Array.isArray(stored) ? (stored as StoredEvidence[]) : []).filter(
+        (existing) => !row.evidence.some((added) => sameEvidence(added, existing))
+      );
+      upsert.run(row.entryId, row.itemId, JSON.stringify([...kept, ...row.evidence]), sourceKindOf(item.type, item.url), now);
     }
   }
 }
 
 function insertEntry(
   db: DatabaseSync,
-  concept: {
-    name: string;
-    aliases: string[];
-    kind: string;
-    category: string | null;
-    summary: string | null;
-    body_markdown: string | null;
-    completeness: unknown;
-  },
+  entry: { name: string; aliases: string[]; kind: string; category: string | null; summary: string | null; body_markdown: string },
   now: string
-): EntryRecord {
+): string {
   const id = randomUUID();
   db.prepare(
     `INSERT INTO kb_entries(id, name, category_id, kind, aliases, summary, body_markdown, completeness, mastery, mastery_source, user_edited, stale, orphan, patch_count, dirty, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'auto', 0, 0, 0, 0, 0, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'auto', 0, 0, 0, 0, 0, ?)`
   ).run(
     id,
-    concept.name.trim(),
-    resolveCategory(db, concept.category),
-    concept.kind,
-    JSON.stringify([...new Set(concept.aliases.map((alias) => alias.trim()).filter(Boolean))]),
-    concept.summary ?? "",
-    concept.body_markdown ?? "",
-    concept.completeness ? JSON.stringify(concept.completeness) : null,
+    entry.name.trim(),
+    resolveCategory(db, entry.category),
+    entry.kind,
+    JSON.stringify([...new Set(entry.aliases.map((alias) => alias.trim()).filter(Boolean))]),
+    entry.summary ?? "",
+    entry.body_markdown,
     now
   );
-  return loadEntry(db, id)!;
+  return id;
 }
 
-type PatchApplied = { replaced: Array<{ section: string; previous_markdown: string }>; degraded: number; suggestion: boolean };
-
-function patchEntry(
-  db: DatabaseSync,
-  entryId: string,
-  ops: PatchOp[],
-  extra: { summary?: string | null; completeness?: unknown; addAlias?: string },
-  now: string
-): PatchApplied | null {
-  const entry = loadEntry(db, entryId);
-  if (!entry) return null;
-  const applied = applyPatchOps({ body_markdown: entry.body, ops, user_edited: entry.userEdited, patch_count: entry.patchCount });
-  const aliases =
-    extra.addAlias && !entry.aliases.some((alias) => normalizeEntryName(alias) === normalizeEntryName(extra.addAlias!))
-      ? [...entry.aliases, extra.addAlias]
-      : entry.aliases;
-  const summary = !entry.userEdited && extra.summary ? extra.summary : entry.summary;
-  const completeness = extra.completeness ? JSON.stringify(extra.completeness) : entry.completeness;
-  db.prepare("UPDATE kb_entries SET body_markdown = ?, patch_count = ?, summary = ?, completeness = ?, aliases = ?, updated_at = ? WHERE id = ?").run(
-    applied.body_markdown,
-    applied.patch_count,
-    summary,
-    completeness,
-    JSON.stringify(aliases),
-    now,
-    entryId
-  );
-  return { replaced: applied.replaced_sections, degraded: applied.degraded_ops.length, suggestion: applied.wrote_suggestion };
-}
-
-function addAlias(db: DatabaseSync, entryId: string, alias: string | undefined): void {
-  if (!alias) return;
-  const entry = loadEntry(db, entryId);
-  if (!entry || entry.aliases.some((existing) => normalizeEntryName(existing) === normalizeEntryName(alias))) return;
-  db.prepare("UPDATE kb_entries SET aliases = ? WHERE id = ?").run(JSON.stringify([...entry.aliases, alias]), entryId);
+function withAlias(aliases: string[], alias: string | undefined): string[] {
+  if (!alias || aliases.some((existing) => normalizeEntryName(existing) === normalizeEntryName(alias))) return aliases;
+  return [...aliases, alias];
 }
 
 function insertEdge(db: DatabaseSync, src: string, dst: string, type: string, itemId: string, description: string | null): boolean {
@@ -235,7 +211,7 @@ export function recordRejection(ctx: IntegrationContext, items: OrganizeItem[], 
   return { status: "rejected", entryChanges: [], edgesCreated: 0, touchedEntryIds: [] };
 }
 
-/** Duplicates (prefilter rule or ⑤): attach sources + evidence only. */
+/** Prefilter duplicates: attach sources (quote evidence) only. */
 export function recordDuplicate(
   ctx: IntegrationContext,
   items: OrganizeItem[],
@@ -249,7 +225,7 @@ export function recordDuplicate(
     );
     if (targets.length === 0) throw new Error("duplicate targets no longer exist");
     const buffer = new SourceBuffer(items);
-    for (const entry of evidenceByEntry) if (targets.includes(entry.entryId)) buffer.add(entry.entryId, entry.evidence);
+    for (const entry of evidenceByEntry) if (targets.includes(entry.entryId)) buffer.addQuotes(entry.entryId, entry.evidence);
     buffer.flush(ctx.db, ctx.now);
     const entryChanges = targets.map((entryId) => ({ entryId, name: loadEntry(ctx.db, entryId)!.name, change: "duplicate" as const }));
     writeResults(ctx.db, items, { ...record, output: { ...record.output, entry_changes: entryChanges } }, ctx.runId, ctx.now, targets);
@@ -258,20 +234,29 @@ export function recordDuplicate(
   });
 }
 
-type Extraction = Extract<KnowledgeProcessingOutput, { decision: "new" | "supplement" }>;
+type Aligned = Exclude<ProcessingResult, { decision: "reject" }>;
 
-/** `new` / `supplement`: align concepts, create entries / apply patches, sources, relations, results. */
-export function integrateExtraction(ctx: IntegrationContext, items: OrganizeItem[], output: Extraction, record: ResultRecord): IntegrationResult {
+/** Fragments grouped by target (`entry` id or new key), in original order. */
+function groupByTarget(fragments: AlignedFragment[]): Array<{ target: string; fragments: AlignedFragment[] }> {
+  const groups = new Map<string, AlignedFragment[]>();
+  for (const fragment of fragments) groups.set(fragment.entry, [...(groups.get(fragment.entry) ?? []), fragment]);
+  return [...groups].map(([target, list]) => ({ target, fragments: list }));
+}
+
+/**
+ * `new` / `supplement` / `duplicate` (17): new entries are built from fragment sections, existing entries get sections
+ * appended (user_edited too), `covered_by` sections only gain the source item.
+ */
+export function integrateFragments(ctx: IntegrationContext, items: OrganizeItem[], result: Aligned, record: ResultRecord): IntegrationResult {
   return withTransaction(ctx.db, () => {
     const db = ctx.db;
     const anchor = items[0]!;
     const buffer = new SourceBuffer(items);
     const changes = new Map<string, EntryChange>();
     const nameToId = new Map<string, string>();
-    const replaced: Array<{ entryId: string; section: string; previous_markdown: string }> = [];
     const discarded: string[] = [];
-    let degraded = 0;
     let edgesCreated = 0;
+    const newEntries = new Map(result.new_entries.map((entry) => [entry.key, entry]));
 
     const setChange = (entryId: string, change: EntryChange["change"]) => {
       const previous = changes.get(entryId);
@@ -279,75 +264,77 @@ export function integrateExtraction(ctx: IntegrationContext, items: OrganizeItem
       if (previous?.change === "supplemented" && change === "duplicate") return;
       changes.set(entryId, { entryId, name: loadEntry(db, entryId)?.name ?? entryId, change });
     };
+    const toSection = (fragment: AlignedFragment) => ({ heading: fragment.heading, markdown: fragment.markdown, sourceItemIds: [buffer.itemIdOf(fragment.turn_item_id)] });
+    const recordSections = (entryId: string, fragments: AlignedFragment[], ids: Array<string | null>) =>
+      fragments.forEach((fragment, index) => buffer.addSection(entryId, buffer.itemIdOf(fragment.turn_item_id), ids[index] ?? null, fragment.heading));
 
-    const kinds = kindVocabulary(db);
-
-    for (const concept of output.concepts) {
-      const entries = listAliveEntries(db);
-      const isNew = concept.match === "new";
-      const kind = resolveKind(concept.kind, kinds);
+    for (const group of groupByTarget(result.fragments)) {
+      const meta = newEntries.get(group.target);
+      const name = meta?.name ?? group.fragments[0]!.concept;
+      const aliases = meta?.aliases ?? [];
+      const kind = resolveKind(meta?.kind ?? null);
       const decision = decideAlignment({
-        match: concept.match,
-        name: concept.name,
-        aliases: concept.aliases,
-        kind,
-        body_markdown: isNew ? concept.body_markdown : null,
-        existing_entries: entries.map((entry) => ({ id: entry.id, name: entry.name, aliases: entry.aliases, kind: normalizeKind(entry.kind) })),
+        match: meta ? "new" : group.target,
+        name,
+        aliases,
+        kind: meta ? kind : null,
+        existing_entries: listAliveEntries(db).map((entry) => ({ id: entry.id, name: entry.name, aliases: entry.aliases, kind: normalizeKind(entry.kind) })),
         kb_ignore_names: ctx.kbIgnore,
-        name_similarities: ctx.nameSimilarities.get(concept.name) ?? []
+        name_similarities: ctx.nameSimilarities.get(name) ?? []
       });
       if (decision.action === "discard") {
-        discarded.push(concept.name);
+        discarded.push(name);
         continue;
       }
 
       let entryId: string;
       if (decision.action === "create_new") {
-        if (!kinds.includes(kind)) kinds.push(kind);
-        const created = insertEntry(
-          db,
-          {
-            name: concept.name,
-            aliases: concept.aliases,
-            kind,
-            category: concept.category,
-            summary: concept.summary,
-            body_markdown: concept.body_markdown ?? (concept.patch ? concept.patch.ops.map((op) => op.markdown).join("\n\n") : ""),
-            completeness: concept.completeness ?? concept.patch?.completeness ?? null
-          },
-          ctx.now
-        );
-        entryId = created.id;
+        const { body, ids } = appendSections("", group.fragments.map(toSection));
+        entryId = insertEntry(db, { name, aliases, kind, category: meta?.category ?? null, summary: meta?.summary ?? null, body_markdown: body }, ctx.now);
+        recordSections(entryId, group.fragments, ids);
         setChange(entryId, "created");
       } else {
         entryId = decision.entry_id;
-        const ops: PatchOp[] = [];
-        if (decision.demote_body_to_supplement && concept.body_markdown) ops.push(demoteNewBodyToSupplement(concept.body_markdown));
-        else if (concept.patch) ops.push(...concept.patch.ops);
-        if (ops.length) {
-          const applied = patchEntry(
-            db,
-            entryId,
-            ops,
-            { summary: concept.patch?.summary, completeness: concept.patch?.completeness, addAlias: decision.add_alias },
-            ctx.now
-          );
-          if (applied) {
-            replaced.push(...applied.replaced.map((section) => ({ entryId, ...section })));
-            degraded += applied.degraded;
-            setChange(entryId, "supplemented");
+        const entry = loadEntry(db, entryId)!;
+        let body = entry.body;
+        const sections = new Map(entrySections(body).map((section) => [section.sectionId, section]));
+        const append: AlignedFragment[] = [];
+        for (const fragment of group.fragments) {
+          const itemId = buffer.itemIdOf(fragment.turn_item_id);
+          // A re-organized item (dirty / inbox_all / retry) already wrote its sections: match them instead of appending again.
+          const section =
+            (decision.via === "match" && fragment.covered_by ? sections.get(fragment.covered_by) : undefined) ??
+            [...sections.values()].find(
+              (candidate) => candidate.sourceItemIds.includes(itemId) && verbatimRatio(fragment.markdown, candidate.markdown) >= VERBATIM_MIN_RATIO
+            );
+          if (!section) {
+            append.push(fragment);
+            continue;
           }
-        } else {
-          addAlias(db, entryId, decision.add_alias);
-          setChange(entryId, "duplicate");
+          if (section.marked) body = attachSectionSources(body, section.sectionId, [itemId]) ?? body;
+          buffer.addSection(entryId, itemId, section.marked ? section.sectionId : null, section.heading ?? fragment.heading);
         }
+        let patchCount = entry.patchCount;
+        if (append.length) {
+          const appended = appendSections(body, append.map(toSection));
+          body = appended.body;
+          patchCount += 1;
+          recordSections(entryId, append, appended.ids);
+        }
+        db.prepare("UPDATE kb_entries SET body_markdown = ?, patch_count = ?, aliases = ?, updated_at = ? WHERE id = ?").run(
+          body,
+          patchCount,
+          JSON.stringify(withAlias(entry.aliases, decision.add_alias)),
+          append.length || body !== entry.body ? ctx.now : entry.updatedAt,
+          entryId
+        );
+        setChange(entryId, append.length ? "supplemented" : "duplicate");
       }
-      buffer.add(entryId, concept.evidence);
-      for (const name of [concept.name, ...concept.aliases]) nameToId.set(normalizeEntryName(name), entryId);
+      for (const alias of [name, ...aliases, ...group.fragments.map((fragment) => fragment.concept)]) nameToId.set(normalizeEntryName(alias), entryId);
     }
 
     const resolve = (name: string): string | undefined => nameToId.get(normalizeEntryName(name)) ?? findEntryByName(listAliveEntries(db), name)?.id;
-    for (const relation of output.relations) {
+    for (const relation of result.relations) {
       const src = resolve(relation.from);
       const dst = resolve(relation.to);
       if (!src || !dst || src === dst) continue;
@@ -372,10 +359,7 @@ export function integrateExtraction(ctx: IntegrationContext, items: OrganizeItem
     writeResults(
       db,
       items,
-      {
-        ...record,
-        output: { ...record.output, entry_changes: entryChanges, replaced_sections: replaced, degraded_ops: degraded, discarded_concepts: discarded }
-      },
+      { ...record, output: { ...record.output, entry_changes: entryChanges, discarded_concepts: discarded } },
       ctx.runId,
       ctx.now,
       entryChanges.map((change) => change.entryId)

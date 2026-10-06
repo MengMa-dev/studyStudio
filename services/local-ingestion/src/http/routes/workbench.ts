@@ -105,7 +105,7 @@ export function registerWorkbenchRoutes(api: Hono, services: AppServices): void 
     const body = await parseJsonBody(c, deleteItemsRequestSchema);
     if (!body.ok) return body.response;
     try {
-      return c.json(deleteItems(db, body.data));
+      return c.json(deleteItems(db, body.data, new Date(), { searchIndex: services.searchIndex }));
     } catch (error) {
       if (error instanceof NothingToDeleteError) return c.json({ error: "not_found" }, 404);
       throw error;

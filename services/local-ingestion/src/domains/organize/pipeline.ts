@@ -6,7 +6,7 @@ import type { EngagementLevel } from "./constants.js";
 import { loadLearnerProfile, loadTimeline, toOrganizeProfile, type JudgeProfile } from "./context.js";
 import { applySegmentSuggestion, buildEpisodes } from "./episode-builder.js";
 import { computeInputHash } from "./hash.js";
-import { integrateExtraction, recordDuplicate, recordRejection, type IntegrationContext, type IntegrationResult, type ResultRecord } from "./integrate.js";
+import { integrateFragments, recordDuplicate, recordRejection, type IntegrationContext, type IntegrationResult, type ResultRecord } from "./integrate.js";
 import {
   cachedJudgement,
   deterministicEpisodeId,
@@ -23,10 +23,11 @@ import { decideAfterLearningJudge, decideSegmentCorrection } from "./postprocess
 import { prefilterItem } from "./prefilter.js";
 import { PROCESSING_PROMPT_VERSION, processUnit, type ProcessingContext, type WorkEpisode, type WorkUnit } from "./process.js";
 import { FingerprintCache, RetrievalCache, retrieveCandidates, type EpisodeQuery } from "./retrieve.js";
-import { markStaleEntries, rewriteEntry, staleEntryIds } from "./rewrite.js";
+import { rewriteEntry, staleEntryIds } from "./rewrite.js";
 import { emptyStats, setJob, type JobStatus, type RunSpec } from "./run-store.js";
 import { ENTRY_OWNER, UsageTracker, type OrganizeDeps } from "./runtime-types.js";
-import { fuzzyNotesNear, kbIgnoreNames, listAliveEntries, loadEntry, loadItems, recentKbTopics, type OrganizeItem } from "./store.js";
+import { fuzzyNotesNear, kbIgnoreNames, listAliveEntries, loadEntry, loadItems, parseStringArray, recentKbTopics, type OrganizeItem } from "./store.js";
+import { TraceRecorder } from "./trace.js";
 import type { ActivityEpisode } from "./types.js";
 
 /** Orchestrates ①–⑦ for one run. Work units run serially so each ④ sees the previous ⑥ writes. */
@@ -168,7 +169,7 @@ type RunState = {
   done: number;
   total: number;
   bodyQueue: Set<string>;
-  profile: JudgeProfile;
+  trace: TraceRecorder;
   signal?: AbortSignal;
 };
 
@@ -237,7 +238,10 @@ type JudgedEpisode = { episode: ActivityEpisode; judgement: LearningJudgeOutput 
 
 async function judgeWithCache(state: RunState, episode: ActivityEpisode, profile: JudgeProfile, topics: string[]): Promise<LearningJudgeOutput> {
   const cached = cachedJudgement(state.deps.db, episode.episodeId);
-  if (cached) return cached;
+  if (cached) {
+    state.trace.record("learning_judge", "judge_cached", { episode_id: episode.episodeId }, cached, { scope: { episodeId: episode.episodeId } });
+    return cached;
+  }
   return judgeEpisode(state.llm, toPromptJudgeInput(episode.judgeInput, profile, topics));
 }
 
@@ -286,6 +290,18 @@ async function planFullPath(state: RunState, anchors: OrganizeItem[]): Promise<W
   const topics = recentKbTopics(db, state.now);
   const timeline = loadTimeline(db, anchors);
   const isManual = !AUTO_TRIGGERS.has(state.spec.trigger);
+  state.trace.setScope({ itemIds: anchors.map((item) => item.id) });
+  state.trace.record(
+    "context",
+    "context",
+    { trigger: state.spec.trigger, is_manual: isManual, anchor_item_ids: anchors.map((item) => item.id) },
+    {
+      learner_profile: profile,
+      recent_kb_topics: topics,
+      timeline_units: timeline.units.length,
+      window_items: timeline.items.map((item) => ({ id: item.id, type: item.type, title: item.title ?? null, captured_at: item.capturedAt }))
+    }
+  );
 
   progress(state, "episode", null);
   const built = buildEpisodes({
@@ -298,6 +314,23 @@ async function planFullPath(state: RunState, anchors: OrganizeItem[]): Promise<W
   });
   const episodes = built.episodes.map((episode) => withEpisodeId(episode, deterministicEpisodeId(episode.judgeInput)));
   const anchorById = new Map(anchors.map((item) => [item.id, item]));
+  state.trace.record(
+    "episode",
+    "episodes",
+    { timeline_units: timeline.units.length, is_manual: isManual },
+    episodes.map((episode) => ({
+      episode_id: episode.episodeId,
+      status: episode.status,
+      prefilter_reason: episode.prefilterReason ?? null,
+      started_at: episode.startedAt,
+      ended_at: episode.endedAt,
+      active_seconds: Math.round(episode.activeSeconds),
+      flags: episode.flags,
+      item_ids: episode.itemIds,
+      anchor_item_ids: episode.itemIds.filter((id) => anchorById.has(id)),
+      judge_input: episode.judgeInput
+    }))
+  );
   const assigned = new Set<string>();
   const units: WorkUnit[] = [];
 
@@ -352,6 +385,7 @@ async function planFullPath(state: RunState, anchors: OrganizeItem[]): Promise<W
     }
 
     progress(state, "learning_judge", episodeAnchors[0] ?? null);
+    state.trace.setScope({ itemIds: episodeAnchors.map((item) => item.id), episodeId: episode.episodeId });
     let judged: JudgedEpisode[];
     try {
       judged = await judgeEpisodeTree(state, episode, profile, topics, timeline.items);
@@ -375,11 +409,28 @@ async function planFullPath(state: RunState, anchors: OrganizeItem[]): Promise<W
       });
       const isLearningEpisode = verdict.action !== "reject_episode" && judgement.is_learning && judgement.worth_extracting && judgement.confidence >= 0.4;
       record(piece, isLearningEpisode ? "learning" : "not_learning", judgement, pieceIds);
+      const candidateIds = new Set(
+        verdict.action === "reject_episode" ? [] : [...(isLearningEpisode ? judgement.candidate_item_ids : []), ...verdict.force_include_item_ids]
+      );
+      state.trace.record(
+        "learning_judge",
+        "judge_verdict",
+        { is_learning: judgement.is_learning, confidence: judgement.confidence, worth_extracting: judgement.worth_extracting, protected_item_ids: protectedIds },
+        {
+          action: verdict.action,
+          episode_status: isLearningEpisode ? "learning" : "not_learning",
+          candidate_item_ids: pieceIds.filter((id) => candidateIds.has(id)),
+          rejected_item_ids: pieceIds.filter((id) => !candidateIds.has(id)),
+          forced_item_ids: verdict.force_include_item_ids,
+          item_engagement: judgement.item_engagement,
+          reason: judgement.reason
+        },
+        { scope: { itemIds: pieceIds, episodeId: piece.episodeId } }
+      );
       if (verdict.action === "reject_episode") {
         reject(pieceAnchors, piece.episodeId, judgement.reason, null);
         continue;
       }
-      const candidateIds = new Set([...(isLearningEpisode ? judgement.candidate_item_ids : []), ...verdict.force_include_item_ids]);
       const candidates = pieceAnchors.filter((item) => candidateIds.has(item.id));
       reject(
         pieceAnchors.filter((item) => !candidateIds.has(item.id)),
@@ -430,12 +481,17 @@ function unitHash(unit: WorkUnit, notes: string[], requirement: string | null): 
   });
 }
 
-/** Skips a unit whose stored `input_hash` matches; restores the previous inbox status. */
+/** Skips a unit whose stored `input_hash` matches and whose written entries still exist; restores the previous inbox status. */
 function trySkip(state: RunState, unit: WorkUnit, hash: string): boolean {
   const db = state.deps.db;
-  const select = db.prepare("SELECT input_hash, decision FROM organize_results WHERE item_id = ?");
-  const previous = unit.items.map((item) => ({ item, row: select.get(item.id) as { input_hash: string | null; decision: string | null } | undefined }));
-  if (!previous.every(({ item, row }) => row?.input_hash === hash && row.decision && !item.dirty)) return false;
+  const select = db.prepare("SELECT input_hash, decision, target_entry_ids FROM organize_results WHERE item_id = ?");
+  const alive = db.prepare("SELECT 1 FROM kb_entries WHERE id = ? AND deleted_at IS NULL");
+  const previous = unit.items.map((item) => ({
+    item,
+    row: select.get(item.id) as { input_hash: string | null; decision: string | null; target_entry_ids: string | null } | undefined
+  }));
+  const entriesAlive = (ids: string | null) => parseStringArray(ids).every((id) => alive.get(id));
+  if (!previous.every(({ item, row }) => row?.input_hash === hash && row.decision && !item.dirty && entriesAlive(row.target_entry_ids))) return false;
   const update = db.prepare("UPDATE items SET organize_status = ? WHERE id = ?");
   for (const { item, row } of previous) update.run(row!.decision === "reject" || row!.decision === "not_learning" ? "rejected" : "ingested", item.id);
   finishItems(state, unit.items, "skipped", null);
@@ -460,6 +516,15 @@ async function nameSimilarities(
   return out;
 }
 
+function traceIntegration(state: RunState, decision: OrganizeDecision, status: JobStatus, result: IntegrationResult | null, rejectReason?: string | null): void {
+  state.trace.record(
+    "integration",
+    "integration",
+    { decision, reject_reason: rejectReason ?? null },
+    { status, entry_changes: result?.entryChanges ?? [], edges_created: result?.edgesCreated ?? 0 }
+  );
+}
+
 async function afterIntegration(
   state: RunState,
   indexCtx: IndexContext,
@@ -469,6 +534,7 @@ async function afterIntegration(
   status: JobStatus,
   decision: OrganizeDecision
 ): Promise<void> {
+  traceIntegration(state, decision, status, result);
   for (const change of result.entryChanges) {
     fingerprints.add(change.entryId, unit.items[0]!);
     if (change.change === "created") state.stats.kb.entriesCreated += 1;
@@ -492,7 +558,11 @@ async function runUnit(
   const itemNoteTexts = unit.items.flatMap((item) => item.itemNotes.map((note) => note.text));
   const usedNoteIds = [...unit.items.flatMap((item) => item.itemNotes.map((note) => note.id)), ...fuzzy.map((note) => note.id)];
   const hash = unitHash(unit, [...itemNoteTexts, ...fuzzy.map((note) => note.text)], state.spec.requirement);
-  if (trySkip(state, unit, hash)) return;
+  state.trace.setScope({ itemIds: unit.items.map((item) => item.id), episodeId: unit.episode?.episodeId ?? null });
+  if (trySkip(state, unit, hash)) {
+    state.trace.record("integration", "skipped", { input_hash: hash }, { reason: "input_hash 未变化，沿用上次整理结果" });
+    return;
+  }
 
   const common = { inputHash: hash, episodeId: unit.episode?.episodeId ?? null, override: unit.adopt ? ("adopt" as const) : null };
   progress(state, "retrieve", anchor);
@@ -519,6 +589,20 @@ async function runUnit(
     kb_ignore_names: shared.ignore,
     now: state.now
   });
+  state.trace.record(
+    "retrieve",
+    "retrieve",
+    {
+      path: unit.path,
+      adopt: unit.adopt,
+      engagement: unit.engagement,
+      titles: unit.items.map((item) => item.title),
+      episode_query: episodeQuery,
+      has_note: itemNoteTexts.length > 0,
+      has_highlight: unit.items.some((item) => item.highlights.length > 0)
+    },
+    { candidates: candidates.map(({ entry_id, name, similarity, last_source_at }) => ({ entry_id, name, similarity, last_source_at })), prefilter }
+  );
 
   if (prefilter.route !== "llm" && !(unit.adopt && prefilter.decision === "reject")) {
     progress(state, "integration", anchor);
@@ -528,6 +612,7 @@ async function runUnit(
         unit.items,
         baseRecord({ ...common, decision: "reject", route: prefilter.route, rejectReason: prefilter.reject_reason, output: { prefilter } })
       );
+      traceIntegration(state, "reject", "rejected", null, prefilter.reject_reason);
       state.stats.decisions.prefiltered += 1;
       finishItems(state, unit.items, "rejected", "reject");
       return;
@@ -549,7 +634,6 @@ async function runUnit(
     db,
     llm: state.llm,
     indexCtx: state.deps.searchIndex ? shared.indexCtx : null,
-    profile: { role: state.profile.role, learning_focus: state.profile.learning_focus.map((entry) => entry.topic) },
     requirement: state.spec.requirement,
     fuzzyNotes: fuzzy.map((note) => note.text),
     ignoredNames: shared.ignore
@@ -557,14 +641,13 @@ async function runUnit(
   const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
   const outcome = await processUnit(processing, unit, prefilter.related_entries, entriesById);
   const output = outcome.output;
+  state.trace.record("knowledge_processing", "processing_result", { raw: outcome.raw }, { output }, { model: outcome.model });
   const recordFields = {
     ...common,
     route: outcome.route,
-    valueScore: output.value_score,
-    reason: output.reason,
     model: outcome.model,
     promptVersion: PROCESSING_PROMPT_VERSION,
-    output: { raw: outcome.raw, fallback: outcome.fallback }
+    output: { raw: outcome.raw }
   };
 
   progress(state, "integration", anchor);
@@ -574,22 +657,15 @@ async function runUnit(
       unit.items,
       baseRecord({ ...recordFields, decision: "reject", rejectReason: output.reject_reason })
     );
+    traceIntegration(state, "reject", "rejected", null, output.reject_reason);
     state.stats.decisions.reject += 1;
     finishItems(state, unit.items, "rejected", "reject");
     return;
   }
-  if (output.decision === "duplicate") {
-    const evidence = output.evidence_by_entry.length
-      ? output.evidence_by_entry.map((entry) => ({ entryId: entry.entry_id, evidence: entry.evidence }))
-      : output.target_entry_ids.map((entryId) => ({ entryId, evidence: [] }));
-    const result = recordDuplicate(integrationContext(state, usedNoteIds), unit.items, evidence, baseRecord({ ...recordFields, decision: "duplicate" }));
-    await afterIntegration(state, shared.indexCtx, shared.fingerprints, unit, result, "ingested", "duplicate");
-    state.stats.decisions.duplicate += 1;
-    return;
-  }
-  const newNames = output.concepts.filter((concept) => concept.match === "new").map((concept) => concept.name);
+  const usedKeys = new Set(output.fragments.map((fragment) => fragment.entry));
+  const newNames = output.new_entries.filter((entry) => usedKeys.has(entry.key)).map((entry) => entry.name);
   const similarities = await nameSimilarities(state, shared.indexCtx, newNames);
-  const result = integrateExtraction(
+  const result = integrateFragments(
     integrationContext(state, usedNoteIds, similarities),
     unit.items,
     output,
@@ -608,7 +684,6 @@ async function runUnit(
 
 async function runRewrites(state: RunState, indexCtx: IndexContext, explicit: string[], trigger: "manual" | "full"): Promise<void> {
   const db = state.deps.db;
-  markStaleEntries(db);
   const stale = staleEntryIds(db).filter((id) => !explicit.includes(id));
   const jobs = [...explicit.map((id) => ({ id, trigger })), ...stale.map((id) => ({ id, trigger: "stale" as const }))];
   state.total += jobs.length;
@@ -616,6 +691,7 @@ async function runRewrites(state: RunState, indexCtx: IndexContext, explicit: st
   for (const job of jobs) {
     checkAbort(state);
     progress(state, "entry_rewrite", null);
+    state.trace.setScope({ entryId: job.id });
     try {
       const outcome = await rewriteEntry(db, state.llm, job.id, job.trigger, requirement, state.nowIso);
       setJob(db, state.runId, "entry_rewrite", job.id, outcome.status === "rewritten" ? "rewritten" : "skipped");
@@ -652,9 +728,9 @@ export async function executeRun(deps: OrganizeDeps, runId: string, spec: RunSpe
   if (!deps.gateway) throw new Error("ai_gateway_unavailable: 未配置 AI 服务商，无法整理");
   const now = deps.now?.() ?? new Date();
   const usage = new UsageTracker();
-  const llm: LlmContext = { gateway: deps.gateway, usage, allowOverLimit: spec.allowOverLimit, signal };
   const db = deps.db;
-  markStaleEntries(db);
+  const trace = new TraceRecorder(db, runId);
+  const llm: LlmContext = { gateway: deps.gateway, usage, allowOverLimit: spec.allowOverLimit, signal, trace };
   const targets = resolveTargets(db, spec);
   const items = loadItems(db, [...targets.fullIds, ...targets.directIds]);
   const fullItems = targets.fullIds.map((id) => items.get(id)).filter((item): item is OrganizeItem => Boolean(item));
@@ -674,7 +750,7 @@ export async function executeRun(deps: OrganizeDeps, runId: string, spec: RunSpe
     total: fullItems.length + directItems.length,
     bodyQueue: new Set(),
     signal,
-    profile: loadLearnerProfile(db, now)
+    trace
   };
   state.stats.items.total = state.total;
   for (const item of [...fullItems, ...directItems]) setJob(db, runId, "item", item.id, "pending");

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { DatabaseSync } from "node:sqlite";
 import { AiGateway } from "../../src/ai/gateway";
 import { MemoryProviderConfigStore, MemoryUsageStore } from "../../src/ai/stores";
+import type { KnowledgeAlignOutput, KnowledgeExtractOutput } from "../../src/ai/prompts/schemas.draft";
 import type { AiTask, LlmFixture, MockRule } from "../../src/ai/types";
 import { openDatabase, type AppDatabase } from "../../src/db/database";
 import { executeRun, type PipelineResult } from "../../src/domains/organize/pipeline";
@@ -14,7 +15,7 @@ const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), "../fixtures/l
 
 export const NOW = new Date("2026-10-02T23:00:00+08:00");
 
-export type FixtureTask = "learning_judge" | "knowledge_processing" | "entry_rewrite";
+export type FixtureTask = "learning_judge" | "knowledge_processing";
 
 export function fixture(task: FixtureTask, name: string): LlmFixture {
   return JSON.parse(readFileSync(join(FIXTURE_DIR, task, `${name}.json`), "utf8")) as LlmFixture;
@@ -37,12 +38,10 @@ export function recordedTurns(name: string): Array<{ turn_item_id: string; quest
 }
 
 export type Input = Record<string, unknown> & {
-  step?: "triage" | "extract" | "compose";
+  step?: "extract" | "align";
   item?: { item_id?: string };
   entry?: { entry_id?: string };
-  chunk?: { index: number };
   timeline?: unknown[];
-  mode?: string;
   feedback?: string[] | null;
 };
 
@@ -58,82 +57,61 @@ export const replay = {
   judge(out: unknown, when: (input: Input) => boolean = () => true): MockRule {
     return { match: ({ input }) => Array.isArray((input as Input)?.timeline) && when(input as Input), output: out };
   },
-  triage: stepRule("triage"),
   extract: stepRule("extract"),
-  compose: stepRule("compose"),
-  rewrite(entryId: string, out: unknown, when: (input: Input) => boolean = () => true): MockRule {
+  align: stepRule("align"),
+  restructure(entryId: string, out: unknown, when: (input: Input) => boolean = () => true): MockRule {
     return {
-      match: ({ input }) => (input as Input)?.entry?.entry_id === entryId && "evidence" in (input as Input) && when(input as Input),
-      output: { covered_ids: Array.from({ length: 100 }, (_, index) => `e${index + 1}`), dropped: [], ...(out as object) }
+      match: ({ input }) => (input as Input)?.entry?.entry_id === entryId && "sections" in (input as Input) && when(input as Input),
+      output: out
     };
   }
 };
 
-type RecordedEvidence = { quote: string; question?: string | null; turn_item_id?: string | null };
-type RecordedConcept = Record<string, unknown> & { name: string; match: string; evidence: RecordedEvidence[] };
-type RecordedOutput = Record<string, unknown> & {
-  decision: "new" | "supplement" | "duplicate" | "reject";
-  value_score: number;
-  reason: string;
-  reject_reason?: string;
-  item_summary?: string;
-  item_points?: string[];
-  concepts?: RecordedConcept[];
-  relations?: unknown[];
-  target_entry_ids?: string[];
-  evidence_by_entry?: Array<{ entry_id: string; evidence: RecordedEvidence[] }>;
-};
+export type Fragment = KnowledgeExtractOutput["fragments"][number];
 
-/**
- * Splits a recorded single-call ⑤ output into S1 triage / S2 extract (all points in chunk 0) / S3+S4 compose replays.
- * Every evidence quote becomes one core point; duplicates become existing-entry concepts with `patch: null`.
- */
-export function steps(itemId: string, data: unknown, options: { duplicateAtTriage?: boolean } = {}): MockRule[] {
-  const recorded = data as RecordedOutput;
-  const triage = {
-    item_id: itemId,
-    decision: recorded.decision === "new" || recorded.decision === "supplement" ? "proceed" : recorded.decision,
-    value_score: recorded.value_score,
-    reason: recorded.reason,
-    reject_reason: recorded.decision === "reject" ? (recorded.reject_reason ?? "low_information") : null,
-    target_entry_ids: recorded.decision === "duplicate" && options.duplicateAtTriage !== false ? (recorded.target_entry_ids ?? []) : [],
-    duplicate_quotes: recorded.decision === "duplicate" ? (recorded.evidence_by_entry ?? []).flatMap((entry) => entry.evidence.map((item) => item.quote)) : [],
-    thesis: recorded.item_summary ?? recorded.reason,
-    user_focus: []
+/** Verbatim extract fragments: one per heading section of `text` (a text without headings is one fragment, `source_section: null`). */
+export function sectionFragments(text: string, concept: string, turnItemId: string | null = null): Fragment[] {
+  const sections: Array<{ heading: string | null; lines: string[] }> = [{ heading: null, lines: [] }];
+  for (const line of text.split("\n")) {
+    if (/^#{1,6}\s+\S/.test(line)) sections.push({ heading: line.trim(), lines: [] });
+    else sections.at(-1)!.lines.push(line);
+  }
+  return sections
+    .filter((section) => section.lines.join("\n").trim())
+    .map((section) => ({
+      concept,
+      heading: section.heading?.replace(/^#+\s*/, "") ?? concept,
+      markdown: section.lines.join("\n").trim(),
+      summarized: false,
+      source_section: section.heading,
+      turn_item_id: turnItemId
+    }));
+}
+
+type AlignOutput = KnowledgeAlignOutput;
+
+export function newEntry(name: string, patch: Partial<AlignOutput["new_entries"][number]> = {}): AlignOutput["new_entries"][number] {
+  return { key: `new:${name}`, name, aliases: [], kind: "概念", category: "Agent 框架", summary: `${name} 摘要`, ...patch };
+}
+
+/** Align output assigning fragment i (f1…fn) to `targets[i]` (`[entry, covered_by]` or an entry / new key). */
+export function alignment(targets: Array<string | [string, string | null]>, patch: Partial<AlignOutput> = {}): AlignOutput {
+  return {
+    assignments: targets.map((target, index) => {
+      const [entry, covered_by] = Array.isArray(target) ? target : [target, null];
+      return { fragment_id: `f${index + 1}`, entry, covered_by };
+    }),
+    new_entries: [],
+    relations: [],
+    item_summary: "条目摘要",
+    item_points: ["要点"],
+    ...patch
   };
-  const rules = [replay.triage(itemId, triage)];
-  if (recorded.decision === "reject") return rules;
+}
 
-  const groups: Array<{ concept: RecordedConcept; evidence: RecordedEvidence[] }> =
-    recorded.decision === "duplicate"
-      ? (recorded.evidence_by_entry ?? []).map((entry) => ({
-          concept: { name: entry.entry_id, match: entry.entry_id, aliases: [], kind: "概念", evidence: entry.evidence, patch: null },
-          evidence: entry.evidence
-        }))
-      : (recorded.concepts ?? []).map((concept) => ({ concept, evidence: concept.evidence }));
-  let next = 0;
-  const points: Array<Record<string, unknown>> = [];
-  const concepts = groups.map(({ concept, evidence }) => {
-    const { evidence: _evidence, ...rest } = concept;
-    const point_ids = evidence.map((item) => {
-      next += 1;
-      points.push({ statement: item.quote, quote: item.quote, section: null, concept: concept.name, importance: "core", turn_item_id: item.turn_item_id ?? null });
-      return `p${next}`;
-    });
-    return { category: null, summary: null, body_markdown: null, completeness: null, patch: null, ...rest, point_ids };
-  });
-  return [
-    ...rules,
-    replay.extract(itemId, { points }, (input) => input.chunk?.index === 0),
-    replay.extract(itemId, { points: [] }),
-    replay.compose(itemId, {
-      item_summary: recorded.item_summary ?? recorded.reason,
-      item_points: recorded.item_points ?? [],
-      concepts,
-      relations: recorded.relations ?? [],
-      dropped: []
-    })
-  ];
+/** extract → align replays for one item. */
+export function steps(itemId: string, fragments: Fragment[], align: AlignOutput, removed: KnowledgeExtractOutput["removed"] = []): MockRule[] {
+  return [replay.extract(itemId, { fragments, removed }), replay.align(itemId, align)];
 }
 
 export function stepCalls(prompts: Array<{ input: unknown }>, step: NonNullable<Input["step"]>, itemId?: string): Input[] {

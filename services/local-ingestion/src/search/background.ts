@@ -1,3 +1,4 @@
+import { stripSectionMarkers } from "@study-studio/shared";
 import { chunkText, type ChunkOptions } from "./chunk";
 import type { IndexableDocument, SearchDatabase, SearchIndex } from "./index-api";
 
@@ -30,7 +31,7 @@ export type ChunkIndexer = {
 type EntryRow = { id: string; name: string | null; summary: string | null; body_markdown: string | null };
 
 export function entryDocument(row: EntryRow): IndexableDocument {
-  const text = [row.name, row.summary, row.body_markdown]
+  const text = [row.name, row.summary, row.body_markdown && stripSectionMarkers(row.body_markdown)]
     .map((part) => part?.trim())
     .filter(Boolean)
     .join("\n\n");

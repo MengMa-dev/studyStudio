@@ -52,8 +52,9 @@ export function decideAlignment(input: AlignmentInput): AlignmentDecision {
   const sims = (input.name_similarities ?? [])
     .filter((s) => s.similarity > threshold)
     .filter((s) => {
-      if (input.kind == null || input.kind === "") return true;
       const entry = alive.find((e) => e.id === s.entry_id);
+      if (!entry) return false;
+      if (input.kind == null || input.kind === "") return true;
       const kind = s.kind ?? entry?.kind;
       return kind == null || kind === "" || kind === input.kind;
     })

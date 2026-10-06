@@ -32,6 +32,7 @@ const BUSINESS_TABLES = [
   "episode_items",
   "organize_runs",
   "organize_jobs",
+  "organize_traces",
   "trash",
   "usage_daily",
   "chat_messages"

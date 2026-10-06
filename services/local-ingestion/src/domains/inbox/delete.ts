@@ -1,9 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { DeleteImpactResponse, DeleteItemsRequest, DeleteItemsResponse } from "@study-studio/shared";
+import {
+  parseSections,
+  removeSectionSource,
+  serializeSections,
+  stripSectionMarkers,
+  type DeleteImpactResponse,
+  type DeleteItemsRequest,
+  type DeleteItemsResponse
+} from "@study-studio/shared";
 import { withTransaction } from "../../db/database.js";
 import type { ItemRow, KbEdgeRow, KbEdgeSourceRow, KbEntryRow, KbEntrySourceRow, NoteRow, OrganizeResultRow } from "../../db/types.js";
 import { hostOf, insertRule, listRules } from "../capture/rules.js";
+import { reindexEntries, removeEntriesFromIndex, type KbSearchIndex } from "../kb/search-sync.js";
 import { insertTrashRow } from "../trash/store.js";
 import { selectIn } from "./sql.js";
 
@@ -12,13 +21,17 @@ export type ItemTrashPayload = {
   itemIds: string[];
   noteIds: string[];
   kb: {
-    /** Entry rows as they were before the delete (soft-deleted, staled or orphaned). */
+    /** Entry rows as they were before the delete (soft-deleted, updated or orphaned); `body_markdown` is the pre-delete body. */
     entries: KbEntryRow[];
     deletedEntryIds: string[];
     sources: KbEntrySourceRow[];
     edges: KbEdgeRow[];
     edgeSources: KbEdgeSourceRow[];
     organizeResults: OrganizeResultRow[];
+    /** Bodies written by the section cascade, so restore can tell whether the entry changed since. */
+    bodies?: Array<{ entryId: string; after: string }>;
+    /** Section notes whose anchor was cleared because their section was removed. */
+    noteAnchors?: Array<{ id: string; anchor: string }>;
   };
   ruleIds: string[];
 };
@@ -26,8 +39,11 @@ export type ItemTrashPayload = {
 type KbPlan = {
   sources: KbEntrySourceRow[];
   toDelete: KbEntryRow[];
-  toStale: KbEntryRow[];
+  /** Entries that keep living with their remaining sections (reported as `entriesToStale` for API compatibility). */
+  toUpdate: KbEntryRow[];
   toOrphan: KbEntryRow[];
+  /** Kept entries whose body loses sections or section sources. */
+  bodies: Map<string, { body: string; removedSectionIds: string[] }>;
 };
 
 function activeItems(db: DatabaseSync, ids: readonly string[]): ItemRow[] {
@@ -42,9 +58,22 @@ function activeNotes(db: DatabaseSync, noteIds: readonly string[], itemIds: read
   return [...byId.values()];
 }
 
+/** Drops the items from section markers: sections only from them go, shared sections lose them (17). */
+function cascadeSections(body: string, itemIds: readonly string[]): { body: string; removedSectionIds: string[]; changed: boolean } {
+  const original = serializeSections(parseSections(body));
+  let next = original;
+  const removedSectionIds: string[] = [];
+  for (const id of itemIds) {
+    const result = removeSectionSource(next, id);
+    next = result.body;
+    removedSectionIds.push(...result.removedSectionIds);
+  }
+  return { body: next, removedSectionIds, changed: next !== original };
+}
+
 /**
- * Entries sourced only from the deleted items are deleted; entries with other live sources go stale;
- * user-edited entries are never deleted and become orphans once no source remains.
+ * Entries sourced only from the deleted items, or emptied by the section cascade, are deleted; entries with other
+ * live sources keep their remaining sections; user-edited entries are never deleted and become orphans once no source remains.
  */
 function planKb(db: DatabaseSync, itemIds: readonly string[]): KbPlan {
   const removed = new Set(itemIds);
@@ -57,12 +86,18 @@ function planKb(db: DatabaseSync, itemIds: readonly string[]): KbPlan {
     selectIn<{ id: string }>(db, (list) => `SELECT id FROM items WHERE deleted_at IS NULL AND id IN (${list})`, otherItemIds).map((row) => row.id)
   );
 
-  const plan: KbPlan = { sources, toDelete: [], toStale: [], toOrphan: [] };
+  const plan: KbPlan = { sources, toDelete: [], toUpdate: [], toOrphan: [], bodies: new Map() };
   for (const entry of entries) {
     const remaining = allSources.filter((source) => source.entry_id === entry.id && liveItems.has(source.item_id)).length;
-    if (remaining > 0) plan.toStale.push(entry);
+    const cascade = cascadeSections(entry.body_markdown ?? "", itemIds);
+    const emptied = cascade.removedSectionIds.length > 0 && stripSectionMarkers(cascade.body).trim() === "";
+    if (remaining > 0 && (!emptied || entry.user_edited)) plan.toUpdate.push(entry);
     else if (entry.user_edited) plan.toOrphan.push(entry);
-    else plan.toDelete.push(entry);
+    else {
+      plan.toDelete.push(entry);
+      continue;
+    }
+    if (cascade.changed) plan.bodies.set(entry.id, { body: cascade.body, removedSectionIds: cascade.removedSectionIds });
   }
   return plan;
 }
@@ -77,7 +112,7 @@ export function deleteImpact(db: DatabaseSync, itemIds: readonly string[], noteI
     itemCount: items.length,
     noteCount: notes.length,
     entriesToDelete: plan.toDelete.map(brief),
-    entriesToStale: plan.toStale.map(brief),
+    entriesToStale: plan.toUpdate.map(brief),
     entriesToOrphan: plan.toOrphan.map(brief),
     evidenceCount: plan.sources.length
   };
@@ -125,21 +160,37 @@ function removeFromKb(db: DatabaseSync, itemIds: string[], nowIso: string): Item
 
   const softDelete = db.prepare("UPDATE kb_entries SET deleted_at = ? WHERE id = ?");
   for (const entry of plan.toDelete) softDelete.run(nowIso, entry.id);
-  const stale = db.prepare("UPDATE kb_entries SET stale = 1 WHERE id = ?");
-  for (const entry of plan.toStale) stale.run(entry.id);
   const orphan = db.prepare("UPDATE kb_entries SET orphan = 1 WHERE id = ?");
   for (const entry of plan.toOrphan) orphan.run(entry.id);
+
+  const bodies: NonNullable<ItemTrashPayload["kb"]["bodies"]> = [];
+  const noteAnchors: NonNullable<ItemTrashPayload["kb"]["noteAnchors"]> = [];
+  const updateBody = db.prepare("UPDATE kb_entries SET body_markdown = ?, updated_at = ? WHERE id = ?");
+  const anchoredNotes = db.prepare(
+    "SELECT id, anchor FROM notes WHERE scope = 'entry' AND target_id = ? AND anchor IN (SELECT value FROM json_each(?))"
+  );
+  const clearAnchor = db.prepare("UPDATE notes SET anchor = NULL WHERE id = ?");
+  for (const [entryId, next] of plan.bodies) {
+    updateBody.run(next.body, nowIso, entryId);
+    bodies.push({ entryId, after: next.body });
+    for (const note of anchoredNotes.all(entryId, JSON.stringify(next.removedSectionIds)) as Array<{ id: string; anchor: string }>) {
+      clearAnchor.run(note.id);
+      noteAnchors.push({ id: note.id, anchor: note.anchor });
+    }
+  }
 
   const deleteResult = db.prepare("DELETE FROM organize_results WHERE item_id = ?");
   for (const result of organizeResults) deleteResult.run(result.item_id);
 
   return {
-    entries: [...plan.toDelete, ...plan.toStale, ...plan.toOrphan],
+    entries: [...plan.toDelete, ...plan.toUpdate, ...plan.toOrphan],
     deletedEntryIds,
     sources: plan.sources,
     edges: [...edges.values()],
     edgeSources: [...edgeSources.values()],
-    organizeResults
+    organizeResults,
+    bodies,
+    noteAnchors
   };
 }
 
@@ -170,8 +221,8 @@ export class NothingToDeleteError extends Error {
 }
 
 /** Moves items (with their item notes) and selected notes to the trash in one transaction. */
-export function deleteItems(db: DatabaseSync, request: DeleteItemsRequest, now = new Date()): DeleteItemsResponse {
-  return withTransaction(db, () => {
+export function deleteItems(db: DatabaseSync, request: DeleteItemsRequest, now = new Date(), options: { searchIndex?: KbSearchIndex } = {}): DeleteItemsResponse {
+  const { response, kb } = withTransaction(db, () => {
     const nowIso = now.toISOString();
     const items = activeItems(db, request.ids);
     const itemIds = items.map((item) => item.id);
@@ -207,6 +258,9 @@ export function deleteItems(db: DatabaseSync, request: DeleteItemsRequest, now =
       payload,
       now
     });
-    return { trashId: record.id, deletedItemCount: items.length, deletedNoteCount: notes.length };
+    return { response: { trashId: record.id, deletedItemCount: items.length, deletedNoteCount: notes.length }, kb };
   });
+  removeEntriesFromIndex(options.searchIndex, kb.deletedEntryIds);
+  void reindexEntries(options.searchIndex, db, (kb.bodies ?? []).map((body) => body.entryId));
+  return response;
 }

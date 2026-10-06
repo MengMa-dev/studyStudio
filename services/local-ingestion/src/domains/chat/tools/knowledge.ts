@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { InboxItemType, KbCompleteness, KbRelationType } from "@study-studio/shared";
+import { stripSectionMarkers, type InboxItemType, type KbCompleteness, type KbRelationType } from "@study-studio/shared";
 import type { AiGateway } from "../../../ai/gateway.js";
 import type { ItemRow } from "../../../db/types.js";
 import { searchFts } from "../../../search/fts.js";
@@ -147,7 +147,7 @@ export function getEntry(db: DatabaseSync, registry: CitationRegistry, id: strin
   const detail = getKbEntryDetail(db, id);
   if (!detail) return { error: "not_found", id };
   const ref = registry.register({ kind: "entry", id: detail.id, title: detail.name });
-  const body = truncate(detail.bodyMarkdown, DETAIL_TEXT_LIMIT);
+  const body = truncate(stripSectionMarkers(detail.bodyMarkdown), DETAIL_TEXT_LIMIT);
   return {
     ref,
     id: detail.id,

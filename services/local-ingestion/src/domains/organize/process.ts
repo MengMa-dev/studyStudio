@@ -1,45 +1,43 @@
 import type { DatabaseSync } from "node:sqlite";
-import { sourceKindOf } from "@study-studio/shared";
+import { SEED_KINDS, sourceKindOf } from "@study-studio/shared";
 import type { z } from "zod";
 import { PROMPTS } from "../../ai/prompts/index.js";
-import type {
-  KnowledgeComposeInput,
-  KnowledgeComposeOutput,
-  KnowledgeExtractInput,
-  KnowledgeExtractOutput,
-  KnowledgeProcessingOutput,
-  KnowledgeTriageInput,
-  KnowledgeTriageOutput
-} from "../../ai/prompts/schemas.draft.js";
+import type { KnowledgeAlignInput, KnowledgeAlignOutput, KnowledgeExtractInput, KnowledgeExtractOutput } from "../../ai/prompts/schemas.draft.js";
 import type { GenerativeAiTask } from "../../ai/types.js";
-import { estimateTokens } from "../../search/chunk.js";
 import { normalizeKind } from "../kb/queries.js";
-import { annotateExposure, chunkUnit, type ContentChunk } from "./chunk.js";
 import { PREFILTER_PARAMS, type EngagementLevel } from "./constants.js";
-import { assembleResult, missingFeedback, missingPoints, validateCompose, type KnowledgePoint } from "./coverage.js";
 import { vectorRecall, type IndexContext } from "./kb-index.js";
-import { kindVocabulary } from "./kinds.js";
-import { callLlm, isUsageLimitError, tryEmbed, type LlmContext } from "./llm.js";
-import { normalizeHeading } from "./normalize.js";
-import { applyValueScoreFallback } from "./postprocess.js";
-import { headByTokens } from "./retrieve.js";
+import { callLlm, tryEmbed, type LlmContext } from "./llm.js";
+import { normalizeEntryName } from "./normalize.js";
 import { ENTRY_OWNER } from "./runtime-types.js";
-import { categoryNames, findEntryByName, outlineOf, type EntryRecord, type OrganizeItem } from "./store.js";
-import type { ScoredRelatedEntry, ValueScoreFallbackResult } from "./types.js";
+import { categoryNames, findEntryByName, type EntryRecord, type OrganizeItem } from "./store.js";
+import type { ScoredRelatedEntry } from "./types.js";
+import {
+  applySplitFixes,
+  assembleResult,
+  checkAlign,
+  checkExtract,
+  checkSplit,
+  entrySections,
+  verbatimRatio,
+  VERBATIM_MIN_RATIO,
+  type AlignKnown,
+  type ProcessingResult,
+  type SourceText,
+  type SplitFix
+} from "./verify.js";
 
-/** ⑤ Knowledge Processing (15): S1 triage → chunk → S2 extract → concept recall → S3+S4 compose → S5 coverage. */
+/** ⑤ Knowledge Processing (17): extract (whole text) → V1 → concept recall → align → V2 → result. */
 
-export const PROCESSING_PROMPT_VERSION = `organize@3(${PROMPTS.knowledge_triage.version}+${PROMPTS.knowledge_extract.version}+${PROMPTS.knowledge_compose.version})`;
+export const PROCESSING_PROMPT_VERSION = `organize@4(${PROMPTS.knowledge_extract.version}+${PROMPTS.knowledge_align.version})`;
 
-const EXCERPT_TOKEN_BUDGET = 3_000;
-const TRIAGE_ANSWER_HEAD_TOKENS = 400;
 const MAX_RELATED = 5;
 const MAX_CANDIDATES = 10;
 const CONCEPT_RECALL_K = 3;
-const CANDIDATE_BODY_BUDGET = 12_000;
-const EXTRACT_CONCURRENCY = 3;
 const MAX_NEIGHBORS = 10;
 const MAX_IGNORED_NAMES = 100;
+const FRAGMENT_EXCERPT_CHARS = 300;
+const SECTION_EXCERPT_CHARS = 200;
 
 export type WorkEpisode = {
   episodeId: string;
@@ -64,74 +62,10 @@ export type ProcessingContext = {
   llm: LlmContext;
   /** Entry vector index for per-concept recall; null disables it (name matching still applies). */
   indexCtx: IndexContext | null;
-  profile: { role: string; learning_focus: string[] };
   requirement: string | null;
   fuzzyNotes: string[];
   ignoredNames: string[];
 };
-
-type Section = { heading: string | null; lines: string[] };
-
-function splitSections(markdown: string): Section[] {
-  const sections: Section[] = [{ heading: null, lines: [] }];
-  for (const line of markdown.split("\n")) {
-    if (/^#{1,6}\s+\S/.test(line)) sections.push({ heading: line.trim(), lines: [] });
-    else sections[sections.length - 1]!.lines.push(line);
-  }
-  return sections.filter((section) => section.heading !== null || section.lines.join("").trim());
-}
-
-function sectionText(section: Section): string {
-  return [section.heading, ...section.lines]
-    .filter((line) => line !== null)
-    .join("\n")
-    .trim();
-}
-
-function takeTokens(parts: string[], budget: number): string {
-  const out: string[] = [];
-  let used = 0;
-  for (const part of parts) {
-    const tokens = estimateTokens(part);
-    if (used + tokens > budget) {
-      if (out.length === 0) out.push(part.slice(0, budget * 2));
-      break;
-    }
-    out.push(part);
-    used += tokens;
-  }
-  return out.join("\n\n");
-}
-
-function exposedSeconds(section: Section, item: OrganizeItem): number {
-  if (!section.heading) return 0;
-  const key = normalizeHeading(section.heading);
-  return item.exposure.find((row) => row.heading && normalizeHeading(row.heading) === key)?.exposed_seconds ?? 0;
-}
-
-/** S1 excerpt: sections around highlights → most exposed sections → document head (~3k tokens). */
-export function buildExcerpt(item: OrganizeItem, budget = EXCERPT_TOKEN_BUDGET): string {
-  const sections = splitSections(item.body);
-  const picked: Section[] = [];
-  const add = (section: Section) => {
-    if (!picked.includes(section)) picked.push(section);
-  };
-  for (const highlight of item.highlights) {
-    const probe = highlight.slice(0, 40);
-    const hit = sections.find((section) => sectionText(section).includes(probe));
-    if (hit) add(hit);
-  }
-  [...sections]
-    .sort((a, b) => exposedSeconds(b, item) - exposedSeconds(a, item))
-    .forEach((section) => {
-      if (exposedSeconds(section, item) > 0) add(section);
-    });
-  sections.forEach(add);
-  return takeTokens(
-    picked.map((section) => annotateExposure(sectionText(section), item.exposure)),
-    budget
-  );
-}
 
 export function neighborEntries(db: DatabaseSync, relatedIds: string[]): Array<{ entry_id: string; name: string; aliases: string[] }> {
   if (relatedIds.length === 0) return [];
@@ -156,10 +90,6 @@ export function neighborEntries(db: DatabaseSync, relatedIds: string[]): Array<{
     });
 }
 
-function round(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
 type Prompt<I, O> = {
   task: GenerativeAiTask;
   version: string;
@@ -176,133 +106,65 @@ function run<I, O>(llm: LlmContext, prompt: Prompt<I, O>, input: I): Promise<{ o
     system: prompt.system,
     prompt: prompt.buildUserPrompt(input),
     promptVersion: prompt.version,
-    input
+    input,
+    traceStep: `knowledge_${(input as { step: string }).step}`
   });
 }
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (next < items.length) {
-        const index = next++;
-        out[index] = await fn(items[index]!);
-      }
-    })
-  );
-  return out;
-}
-
-/** One retry for transient failures; usage limits and aborts propagate immediately. */
-async function retryOnce<T>(llm: LlmContext, fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    if (isUsageLimitError(error) || llm.signal?.aborted) throw error;
-    return fn();
-  }
-}
-
-const normalizeSpace = (text: string) => text.replace(/\s+/g, " ").trim();
-
-function hasUserMarks(unit: WorkUnit): boolean {
-  return unit.items.some((item) => item.highlights.length > 0 || item.itemNotes.length > 0);
-}
-
-export function buildTriageInput(ctx: ProcessingContext, unit: WorkUnit, related: ScoredRelatedEntry[], entriesById: Map<string, EntryRecord>): KnowledgeTriageInput {
+/** Instructions come only from item notes, fuzzy notes and the organize requirement (entry notes never reach ⑤). */
+export function buildExtractInput(ctx: ProcessingContext, unit: WorkUnit): KnowledgeExtractInput {
   const anchor = unit.items[0]!;
   const conversation = anchor.type === "conversation";
-  const annotated = conversation ? "" : annotateExposure(anchor.body, anchor.exposure);
-  return {
-    step: "triage",
-    mode: unit.adopt ? "adopt" : "normal",
-    episode: unit.episode
-      ? { episode_id: unit.episode.episodeId, topic: unit.episode.topic ?? "", learning_goal: unit.episode.learningGoal ?? "", uncertain: unit.episode.uncertain }
-      : null,
-    learner_profile: ctx.profile,
-    item: {
-      item_id: anchor.id,
-      type: anchor.type,
-      source_kind: sourceKindOf(anchor.type, anchor.url),
-      title: anchor.title,
-      ...(anchor.url ? { url: anchor.url } : {}),
-      outline: conversation ? [] : outlineOf(anchor.body),
-      ...(conversation
-        ? {
-            turns: unit.items.map((item, index) => ({
-              turn_item_id: item.id,
-              turn_index: index + 1,
-              question: item.question ?? item.title,
-              answer: headByTokens(item.body, TRIAGE_ANSWER_HEAD_TOKENS)
-            }))
-          }
-        : { excerpt: estimateTokens(annotated) <= EXCERPT_TOKEN_BUDGET ? annotated : buildExcerpt(anchor) }),
-      user_highlights: unit.items.flatMap((item) => item.highlights),
-      user_note: unit.items.flatMap((item) => item.itemNotes.map((note) => note.text)).join("\n") || null,
-      fuzzy_notes: ctx.fuzzyNotes,
-      requirement: ctx.requirement,
-      engagement: unit.engagement
-    },
-    related_entries: related
-      .slice(0, MAX_RELATED)
-      .filter((scored) => entriesById.has(scored.entry_id))
-      .map((scored) => {
-        const entry = entriesById.get(scored.entry_id)!;
-        return {
-          entry_id: entry.id,
-          name: entry.name,
-          aliases: entry.aliases,
-          kind: normalizeKind(entry.kind),
-          summary: entry.summary ?? "",
-          similarity: round(scored.similarity),
-          recency_relevance: round(scored.recency_relevance),
-          outline: outlineOf(entry.body)
-        };
-      }),
-    ignored_names: ctx.ignoredNames.slice(0, MAX_IGNORED_NAMES)
-  };
-}
-
-function extractInput(unit: WorkUnit, chunk: ContentChunk, thesis: string, userFocus: string[]): KnowledgeExtractInput {
-  const anchor = unit.items[0]!;
   return {
     step: "extract",
-    item: { item_id: anchor.id, type: anchor.type, source_kind: sourceKindOf(anchor.type, anchor.url), title: anchor.title },
-    thesis,
-    user_focus: userFocus,
+    item: { item_id: anchor.id, type: anchor.type, source_kind: sourceKindOf(anchor.type, anchor.url), title: anchor.title, url: anchor.url },
+    text: conversation ? null : anchor.body,
+    turns: conversation
+      ? unit.items.map((item, index) => ({ turn_item_id: item.id, turn_index: index + 1, question: item.question ?? item.title, answer: item.body }))
+      : null,
     user_highlights: unit.items.flatMap((item) => item.highlights),
-    user_note: unit.items.flatMap((item) => item.itemNotes.map((note) => note.text)).join("\n") || null,
-    chunk
+    instructions: [
+      ...unit.items.flatMap((item) => item.itemNotes.map((note) => ({ kind: "item_note" as const, text: note.text }))),
+      ...ctx.fuzzyNotes.map((text) => ({ kind: "fuzzy_note" as const, text })),
+      ...(ctx.requirement ? [{ kind: "requirement" as const, text: ctx.requirement }] : [])
+    ],
+    ignored_names: ctx.ignoredNames.slice(0, MAX_IGNORED_NAMES),
+    feedback: null
   };
 }
 
-/** Numbers points p1…pn in chunk order; fills turn questions; highlighted quotes become core. */
-export function collectPoints(unit: WorkUnit, outputs: KnowledgeExtractOutput[]): KnowledgePoint[] {
-  const questions = new Map(unit.items.map((item) => [item.id, item.question ?? item.title]));
-  const highlights = unit.items.flatMap((item) => item.highlights).map(normalizeSpace).filter(Boolean);
-  const marked = (quote: string) => {
-    const text = normalizeSpace(quote);
-    return Boolean(text) && highlights.some((highlight) => highlight.includes(text) || text.includes(highlight));
-  };
-  return outputs
-    .flatMap((output) => output.points)
-    .map((point, index) => ({
-      id: `p${index + 1}`,
-      statement: point.statement,
-      quote: point.quote,
-      section: point.section,
-      concept: point.concept,
-      importance: marked(point.quote) ? "core" : point.importance,
-      turn_item_id: point.turn_item_id && questions.has(point.turn_item_id) ? point.turn_item_id : null,
-      question: point.turn_item_id ? (questions.get(point.turn_item_id) ?? null) : null
-    }));
+function sourceTexts(unit: WorkUnit): SourceText[] {
+  const anchor = unit.items[0]!;
+  return anchor.type === "conversation" ? unit.items.map((item) => ({ turnItemId: item.id, text: item.body })) : [{ turnItemId: null, text: anchor.body }];
+}
+
+type Extracted = { output: KnowledgeExtractOutput; model: string; retries: number; missing: string[]; rewritten: string[] };
+
+/** V1: one feedback retry on rewritten / missing sections; keeps the result with fewer problems. */
+async function extractVerified(ctx: ProcessingContext, unit: WorkUnit): Promise<Extracted> {
+  const prompt = PROMPTS.knowledge_extract as Prompt<KnowledgeExtractInput, KnowledgeExtractOutput>;
+  const input = buildExtractInput(ctx, unit);
+  const sources = sourceTexts(unit);
+  const summaryAllowed = input.instructions.length > 0;
+  let { object: output, model } = await run(ctx.llm, prompt, input);
+  let check = checkExtract(output, sources, summaryAllowed);
+  let retries = 0;
+  if (check.problems.length) {
+    retries += 1;
+    const retry = await run(ctx.llm, prompt, { ...input, feedback: check.problems });
+    const retryCheck = checkExtract(retry.object, sources, summaryAllowed);
+    if (retryCheck.problems.length < check.problems.length) {
+      ({ object: output, model } = retry);
+      check = retryCheck;
+    }
+  }
+  return { output, model, retries, missing: check.missing, rewritten: check.rewritten };
 }
 
 /** ④ related entries ∪ per-concept name match / vector recall, best first. */
 async function candidateEntries(
   ctx: ProcessingContext,
-  points: KnowledgePoint[],
+  concepts: string[],
   related: ScoredRelatedEntry[],
   entriesById: Map<string, EntryRecord>
 ): Promise<EntryRecord[]> {
@@ -312,7 +174,7 @@ async function candidateEntries(
   };
   for (const scored of related.slice(0, MAX_RELATED)) bump(scored.entry_id, scored.similarity);
   const entries = [...entriesById.values()];
-  for (const concept of new Set(points.map((point) => point.concept))) {
+  for (const concept of new Set(concepts)) {
     const hit = findEntryByName(entries, concept);
     if (hit) bump(hit.id, 1);
     if (!ctx.indexCtx) continue;
@@ -328,101 +190,78 @@ async function candidateEntries(
     .map(([id]) => entriesById.get(id)!);
 }
 
-// ponytail: candidate bodies are cut at CANDIDATE_BODY_BUDGET (later ones get summary + outline only); split compose per entry group if bodies are routinely long.
-function composeInput(
-  ctx: ProcessingContext,
-  unit: WorkUnit,
-  points: KnowledgePoint[],
-  candidates: EntryRecord[],
-  triage: { thesis: string; user_focus: string[] }
-): KnowledgeComposeInput {
+type NumberedFragment = Parameters<typeof assembleResult>[0][number];
+
+function alignInput(ctx: ProcessingContext, unit: WorkUnit, fragments: NumberedFragment[], candidates: EntryRecord[]): KnowledgeAlignInput {
   const anchor = unit.items[0]!;
-  let bodyTokens = 0;
   return {
-    step: "compose",
-    mode: unit.adopt ? "adopt" : "normal",
-    learner_profile: ctx.profile,
-    item: {
-      item_id: anchor.id,
-      type: anchor.type,
-      source_kind: sourceKindOf(anchor.type, anchor.url),
-      title: anchor.title,
-      thesis: triage.thesis,
-      user_focus: triage.user_focus,
-      requirement: ctx.requirement
-    },
-    points: points.map(({ id, statement, concept, importance, section }) => ({ id, statement, concept, importance, section })),
-    candidate_entries: candidates.map((entry) => {
-      bodyTokens += estimateTokens(entry.body);
-      return {
-        entry_id: entry.id,
-        name: entry.name,
-        aliases: entry.aliases,
-        kind: normalizeKind(entry.kind),
-        summary: entry.summary ?? "",
-        outline: outlineOf(entry.body),
-        ...(bodyTokens <= CANDIDATE_BODY_BUDGET ? { body_markdown: entry.body } : {})
-      };
-    }),
+    step: "align",
+    item: { item_id: anchor.id, type: anchor.type, source_kind: sourceKindOf(anchor.type, anchor.url), title: anchor.title },
+    fragments: fragments.map((fragment) => ({
+      fragment_id: fragment.id,
+      concept: fragment.concept,
+      heading: fragment.heading,
+      excerpt: fragment.markdown.slice(0, FRAGMENT_EXCERPT_CHARS)
+    })),
+    candidate_entries: candidates.map((entry) => ({
+      entry_id: entry.id,
+      name: entry.name,
+      aliases: entry.aliases,
+      kind: normalizeKind(entry.kind),
+      summary: entry.summary ?? "",
+      sections: entrySections(entry.body).map((section) => ({
+        section_id: section.sectionId,
+        heading: section.heading,
+        excerpt: section.markdown.slice(0, SECTION_EXCERPT_CHARS)
+      }))
+    })),
     neighbor_entries: neighborEntries(
       ctx.db,
       candidates.map((entry) => entry.id)
     ),
-    ignored_names: ctx.ignoredNames.slice(0, MAX_IGNORED_NAMES),
     categories: categoryNames(ctx.db),
-    kinds: kindVocabulary(ctx.db),
+    kinds: [...SEED_KINDS],
+    ignored_names: ctx.ignoredNames.slice(0, MAX_IGNORED_NAMES),
     feedback: null
   };
 }
 
-type Composed = { output: KnowledgeComposeOutput; model: string; retries: number; missing: string[] };
+function alignKnown(input: KnowledgeAlignInput, ignoredNames: string[]): AlignKnown {
+  const names = [...input.candidate_entries, ...input.neighbor_entries].flatMap((entry) => [entry.name, ...entry.aliases]);
+  return {
+    candidates: new Map(input.candidate_entries.map((entry) => [entry.entry_id, new Set(entry.sections.map((section) => section.section_id))])),
+    neighborIds: new Set(input.neighbor_entries.map((entry) => entry.entry_id)),
+    takenNames: new Set(names.map(normalizeEntryName)),
+    ignoredNames: new Set(ignoredNames.map(normalizeEntryName))
+  };
+}
 
-/** S3+S4 with S5: one retry on structural problems (then fail), one retry on missing points (keep the better result). */
-async function composeWithCoverage(ctx: ProcessingContext, input: KnowledgeComposeInput, points: KnowledgePoint[]): Promise<Composed> {
-  const prompt = PROMPTS.knowledge_compose as Prompt<KnowledgeComposeInput, KnowledgeComposeOutput>;
-  const known = new Set([...input.candidate_entries.map((entry) => entry.entry_id), ...input.neighbor_entries.map((entry) => entry.entry_id)]);
-  let { object: output, model } = await run(ctx.llm, prompt, input);
-  let retries = 0;
-  const problems = validateCompose(output, points, known);
-  if (problems.length) {
-    retries += 1;
-    ({ object: output, model } = await run(ctx.llm, prompt, { ...input, feedback: problems }));
-    const remaining = validateCompose(output, points, known);
-    if (remaining.length) throw new Error(`compose invalid: ${remaining.join("; ")}`);
-  }
-  let missing = missingPoints(output, points);
-  if (missing.length) {
-    retries += 1;
-    const retry = await run(ctx.llm, prompt, { ...input, feedback: [missingFeedback(missing)] });
-    const retryMissing = missingPoints(retry.object, points);
-    if (validateCompose(retry.object, points, known).length === 0 && retryMissing.length < missing.length) {
-      output = retry.object;
-      model = retry.model;
-      missing = retryMissing;
-    }
-  }
-  return { output, model, retries, missing: missing.map((point) => point.id) };
+/** V2: one feedback retry on structural or split problems; structure still invalid → the unit fails, mis-splits left → merged. */
+async function alignVerified(
+  ctx: ProcessingContext,
+  input: KnowledgeAlignInput,
+  fragments: NumberedFragment[]
+): Promise<{ output: KnowledgeAlignOutput; model: string; retries: number; splitFixes: SplitFix[] }> {
+  const prompt = PROMPTS.knowledge_align as Prompt<KnowledgeAlignInput, KnowledgeAlignOutput>;
+  const ids = input.fragments.map((fragment) => fragment.fragment_id);
+  const known = alignKnown(input, ctx.ignoredNames);
+  const first = await run(ctx.llm, prompt, input);
+  const problems = [...checkAlign(first.object, ids, known), ...checkSplit(first.object, fragments).problems];
+  if (problems.length === 0) return { output: first.object, model: first.model, retries: 0, splitFixes: [] };
+  const retry = await run(ctx.llm, prompt, { ...input, feedback: problems });
+  const remaining = checkAlign(retry.object, ids, known);
+  if (remaining.length) throw new Error(`align invalid: ${remaining.join("; ")}`);
+  const { fixes } = checkSplit(retry.object, fragments);
+  return { output: applySplitFixes(retry.object, fixes), model: retry.model, retries: 1, splitFixes: fixes };
 }
 
 export type ProcessOutcome = {
-  output: KnowledgeProcessingOutput;
-  /** Per-step model outputs, kept in `organize_results.output` for calibration. */
-  raw: unknown;
+  output: ProcessingResult;
+  /** Per-step model outputs and check results, kept in `organize_results.output` for calibration. */
+  raw: Record<string, unknown>;
   route: "llm";
-  fallback: ValueScoreFallbackResult | null;
   model: string | null;
 };
-
-function excerptEvidence(item: OrganizeItem): Array<{ quote: string; question: string | null; turn_item_id: string | null }> {
-  const quote =
-    item.highlights[0] ??
-    item.body
-      .split("\n")
-      .find((line) => line.trim() && !line.startsWith("#"))
-      ?.trim() ??
-    item.title;
-  return [{ quote: quote.slice(0, 500), question: null, turn_item_id: null }];
-}
 
 export async function processUnit(
   ctx: ProcessingContext,
@@ -430,61 +269,57 @@ export async function processUnit(
   related: ScoredRelatedEntry[],
   entriesById: Map<string, EntryRecord>
 ): Promise<ProcessOutcome> {
-  const anchor = unit.items[0]!;
-  const triage = await run(ctx.llm, PROMPTS.knowledge_triage as Prompt<KnowledgeTriageInput, KnowledgeTriageOutput>, buildTriageInput(ctx, unit, related, entriesById));
-  const verdict = triage.object;
-  const raw: Record<string, unknown> = { triage: verdict };
-  const base = { item_id: anchor.id, value_score: verdict.value_score, reason: verdict.reason };
-  const outcome = (output: KnowledgeProcessingOutput, model: string, fallback: ValueScoreFallbackResult | null = null): ProcessOutcome => ({
-    output,
-    raw,
-    route: "llm",
-    fallback,
-    model
+  const extracted = await extractVerified(ctx, unit);
+  const raw: Record<string, unknown> = {
+    extract: extracted.output,
+    extract_retries: extracted.retries,
+    missing_sections: extracted.missing,
+    rewritten_fragments: extracted.rewritten
+  };
+  const turnIds = new Set(unit.items.map((item) => item.id));
+  const fragments: NumberedFragment[] = extracted.output.fragments
+    .filter((fragment) => fragment.markdown.trim())
+    .map((fragment, index) => ({
+      id: `f${index + 1}`,
+      concept: fragment.concept.trim() || fragment.heading,
+      heading: fragment.heading,
+      markdown: fragment.markdown,
+      summarized: fragment.summarized,
+      turn_item_id: fragment.turn_item_id && turnIds.has(fragment.turn_item_id) ? fragment.turn_item_id : null
+    }));
+  if (fragments.length === 0) {
+    if (unit.adopt) throw new Error("extract produced no fragments");
+    return { output: { decision: "reject", reject_reason: "low_information" }, raw, route: "llm", model: extracted.model };
+  }
+
+  const candidates = await candidateEntries(
+    ctx,
+    fragments.map((fragment) => fragment.concept),
+    related,
+    entriesById
+  );
+  const aligned = await alignVerified(ctx, alignInput(ctx, unit, fragments, candidates), fragments);
+  raw.align = aligned.output;
+  raw.align_retries = aligned.retries;
+  if (aligned.splitFixes.length) raw.split_merged = aligned.splitFixes;
+  const coverage = checkCoverage(fragments, aligned.output, candidates);
+  if (coverage.overridden.length) raw.coverage_overridden = coverage.overridden;
+  return { output: assembleResult(fragments, coverage.output), raw, route: "llm", model: aligned.model };
+}
+
+/** align judges `covered_by` from excerpts only: a fragment whose text is not in that section is appended instead of dropped. */
+function checkCoverage(fragments: NumberedFragment[], output: KnowledgeAlignOutput, candidates: EntryRecord[]) {
+  const markdown = new Map(fragments.map((fragment) => [fragment.id, fragment.markdown]));
+  const sections = new Map(candidates.map((entry) => [entry.id, new Map(entrySections(entry.body).map((section) => [section.sectionId, section.markdown]))]));
+  const overridden: Array<{ fragment: string; section_id: string; ratio: number }> = [];
+  const assignments = output.assignments.map((assignment) => {
+    const section = assignment.covered_by ? sections.get(assignment.entry)?.get(assignment.covered_by) : undefined;
+    const text = markdown.get(assignment.fragment_id);
+    if (section === undefined || text === undefined) return assignment;
+    const ratio = verbatimRatio(text, section);
+    if (ratio >= VERBATIM_MIN_RATIO) return assignment;
+    overridden.push({ fragment: assignment.fragment_id, section_id: assignment.covered_by!, ratio: Math.round(ratio * 100) / 100 });
+    return { ...assignment, covered_by: null };
   });
-
-  let decision = verdict.decision;
-  if (unit.adopt && decision === "reject") decision = "proceed";
-  const targets = verdict.target_entry_ids.filter((id) => entriesById.has(id));
-  if (decision === "duplicate" && (hasUserMarks(unit) || targets.length === 0)) decision = "proceed";
-
-  if (decision === "reject") return outcome({ ...base, decision: "reject", reject_reason: verdict.reject_reason ?? "low_information" }, triage.model);
-  if (decision === "duplicate") {
-    const evidence = verdict.duplicate_quotes.length
-      ? verdict.duplicate_quotes.map((quote) => ({ quote, question: null, turn_item_id: null }))
-      : excerptEvidence(anchor);
-    return outcome({ ...base, decision: "duplicate", target_entry_ids: targets, evidence_by_entry: targets.map((entry_id) => ({ entry_id, evidence })) }, triage.model);
-  }
-
-  let fallback: ValueScoreFallbackResult | null = null;
-  if (!unit.adopt) {
-    fallback = applyValueScoreFallback({ decision: "new", value_score: verdict.value_score, engagement: unit.engagement, uncertain: unit.episode?.uncertain ?? false });
-    if (fallback.overridden) return outcome({ ...base, decision: "reject", reject_reason: "low_information" }, triage.model, fallback);
-  }
-
-  const focus = { thesis: verdict.thesis?.trim() || anchor.title, user_focus: verdict.user_focus };
-  const chunks = chunkUnit(unit);
-  const extractPrompt = PROMPTS.knowledge_extract as Prompt<KnowledgeExtractInput, KnowledgeExtractOutput>;
-  const extracted = await mapLimit(chunks, EXTRACT_CONCURRENCY, (chunk) =>
-    retryOnce(ctx.llm, () => run(ctx.llm, extractPrompt, extractInput(unit, chunk, focus.thesis, focus.user_focus)))
-  );
-  const points = collectPoints(
-    unit,
-    extracted.map((result) => result.object)
-  );
-  raw.chunks = chunks.length;
-  raw.points = points;
-  if (points.length === 0) {
-    if (unit.adopt) throw new Error("extract produced no knowledge points");
-    return outcome({ ...base, decision: "reject", reject_reason: "low_information" }, extracted[0]?.model ?? triage.model, fallback);
-  }
-
-  const candidates = await candidateEntries(ctx, points, related, entriesById);
-  const composed = await composeWithCoverage(ctx, composeInput(ctx, unit, points, candidates, focus), points);
-  raw.compose = composed.output;
-  raw.compose_retries = composed.retries;
-  raw.missing_after_retry = composed.missing;
-  const output = assembleResult(composed.output, points, base);
-  if (unit.adopt && output.decision === "reject") throw new Error("compose assigned no knowledge points in adopt mode");
-  return outcome(output, composed.model, fallback);
+  return { output: { ...output, assignments }, overridden };
 }

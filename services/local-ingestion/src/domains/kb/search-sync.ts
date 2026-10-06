@@ -1,6 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
+import { stripSectionMarkers } from "@study-studio/shared";
 import type { SearchIndex } from "../../search/index-api.js";
 import type { KbEntryRow } from "../../db/types.js";
+import { ENTRY_OWNER } from "../organize/runtime-types.js";
 import { loadAliveEntries, parseAliases } from "./queries.js";
 
 /** Same owner type as the organize pipeline's entry chunks (07 ④). */
@@ -9,7 +11,7 @@ export const KB_ENTRY_OWNER_TYPE = "entry";
 export type KbSearchIndex = Pick<SearchIndex, "indexDocument" | "deleteOwner">;
 
 export function entryIndexText(row: Pick<KbEntryRow, "name" | "aliases" | "summary" | "body_markdown">): string {
-  return [row.name, parseAliases(row.aliases).join(" "), row.summary ?? "", row.body_markdown ?? ""].filter((part) => part.trim()).join("\n\n");
+  return [row.name, parseAliases(row.aliases).join(" "), row.summary ?? "", stripSectionMarkers(row.body_markdown ?? "")].filter((part) => part.trim()).join("\n\n");
 }
 
 /** Best effort: the index is derived data and can be rebuilt via reindex. */
@@ -28,7 +30,7 @@ export function removeEntriesFromIndex(index: KbSearchIndex | undefined, ids: re
   if (!index) return;
   for (const id of ids) {
     try {
-      index.deleteOwner(KB_ENTRY_OWNER_TYPE, id);
+      for (const ownerType of Object.values(ENTRY_OWNER)) index.deleteOwner(ownerType, id);
     } catch (error) {
       console.warn(`[kb] remove entry ${id} from index failed`, error);
     }

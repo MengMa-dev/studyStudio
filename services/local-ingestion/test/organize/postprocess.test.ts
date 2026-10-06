@@ -6,7 +6,6 @@ import {
   decideAfterLearningJudge,
   decideSegmentCorrection,
   engagementThreshold,
-  knowledgeProcessingOutputSchema,
   learningJudgeOutputSchema
 } from "../../src/domains/organize/index.js";
 
@@ -91,7 +90,7 @@ test("③ confidence branches and note/highlight兜底", () => {
   assert.deepEqual(protected_.force_include_item_ids, ["item_note"]);
 });
 
-test("schemas: learning judge + knowledge processing discriminated union", () => {
+test("schemas: learning judge", () => {
   const judge = learningJudgeOutputSchema.parse({
     episode_id: "ep_1",
     is_learning: true,
@@ -109,57 +108,4 @@ test("schemas: learning judge + knowledge processing discriminated union", () =>
     reason: "围绕 Agent 架构主动搜索"
   });
   assert.equal(judge.is_learning, true);
-
-  const supplement = knowledgeProcessingOutputSchema.parse({
-    item_id: "item_C",
-    decision: "supplement",
-    value_score: 0.74,
-    reason: "补充 checkpoint 关系",
-    item_summary: "HITL 依赖 checkpoint",
-    item_points: ["interrupt 需 checkpointer"],
-    concepts: [
-      {
-        name: "Human-in-the-loop",
-        match: "kb_hitl",
-        evidence: [{ quote: "interrupt() pauses" }],
-        patch: {
-          ops: [{ op: "append_to_section", section: "## 实现方式", markdown: "依赖 checkpoint。" }],
-          summary: null
-        }
-      }
-    ],
-    relations: []
-  });
-  assert.equal(supplement.decision, "supplement");
-
-  const reject = knowledgeProcessingOutputSchema.parse({
-    item_id: "item_x",
-    decision: "reject",
-    value_score: 0.1,
-    reason: "一次性报错",
-    reject_reason: "transient"
-  });
-  assert.equal(reject.decision, "reject");
-
-  const created = knowledgeProcessingOutputSchema.parse({
-    item_id: "item_new",
-    decision: "new",
-    value_score: 0.8,
-    reason: "新概念",
-    item_summary: "Interrupt",
-    item_points: ["暂停执行"],
-    concepts: [
-      {
-        name: "interrupt()",
-        match: "new",
-        summary: "暂停图执行",
-        body_markdown: "## 用法\ninterrupt()",
-        completeness: { covered: ["用法"], missing: ["恢复语义"] },
-        evidence: [{ quote: "interrupt() pauses" }]
-      }
-    ],
-    relations: []
-  });
-  assert.equal(created.decision, "new");
-  assert.equal(created.concepts[0]?.match, "new");
 });

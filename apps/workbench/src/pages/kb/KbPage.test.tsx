@@ -72,8 +72,8 @@ describe("KbPage 知识库目录", () => {
     vi.useRealTimers();
     expect(onFilterChange).toHaveBeenCalledWith({ q: "hnsw", kind: undefined });
 
-    fireEvent.change(screen.getByLabelText("类型筛选"), { target: { value: "论文" } });
-    expect(onFilterChange).toHaveBeenLastCalledWith({ q: "hnsw", kind: "论文" });
+    fireEvent.change(screen.getByLabelText("类型筛选"), { target: { value: "工具/资源" } });
+    expect(onFilterChange).toHaveBeenLastCalledWith({ q: "hnsw", kind: "工具/资源" });
 
     view.rerender(<KbPage q="hnsw" kind={undefined} selectedId={undefined} onFilterChange={onFilterChange} />);
     await screen.findByText("找到 1 个词条");

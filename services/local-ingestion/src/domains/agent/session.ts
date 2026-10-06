@@ -4,6 +4,7 @@ import type { OrganizeRunRow } from "../../db/types.js";
 import { activeRuns, createRun, getRunRow, toRunSummary, updateRun } from "../organize/run-store.js";
 import { parseJson } from "../organize/store.js";
 import { AgentToolError } from "./errors.js";
+import { finishUnit } from "./submit.js";
 
 /** An agent session is an organize run with `trigger = "agent"`; last activity lives in `scope_ids.lastActiveAt`. */
 
@@ -42,11 +43,41 @@ export function touchAgentRun(db: DatabaseSync, runId: string, now: string): voi
   if (row) patchScopeIds(db, row, { lastActiveAt: now });
 }
 
+/** Per-unit write log of a session (`scope_ids.units[unitKey]`), read by `finish_unit`. */
+export type AgentUnitState = { created: string[]; written: string[]; attached: string[]; edges: number };
+
+export function agentUnitState(db: DatabaseSync, runId: string, key: string): AgentUnitState {
+  const units = parseJson<{ units?: Record<string, AgentUnitState> }>(getRunRow(db, runId)?.scope_ids, {}).units ?? {};
+  return units[key] ?? { created: [], written: [], attached: [], edges: 0 };
+}
+
+export function updateAgentUnitState(db: DatabaseSync, runId: string, key: string, update: (state: AgentUnitState) => void): void {
+  const row = getRunRow(db, runId);
+  if (!row) return;
+  const units = parseJson<{ units?: Record<string, AgentUnitState> }>(row.scope_ids, {}).units ?? {};
+  const state = agentUnitState(db, runId, key);
+  update(state);
+  patchScopeIds(db, row, { units: { ...units, [key]: state } });
+}
+
 export function finishAgentSession(db: DatabaseSync, runId: string, summary: string | null): OrganizeRunStats {
   const row = requireAgentRun(db, runId);
   if (summary) patchScopeIds(db, row, { summary });
   updateRun(db, runId, { status: "completed", finishedAt: new Date().toISOString(), progress: null });
   return toRunSummary(row).stats;
+}
+
+/** Units left unfinished with writes are finished as organized so their entries keep a consistent source status. */
+function finishWrittenUnits(db: DatabaseSync, row: OrganizeRunRow, now: Date): void {
+  const units = parseJson<{ units?: Record<string, AgentUnitState> }>(row.scope_ids, {}).units ?? {};
+  for (const [key, state] of Object.entries(units)) {
+    if (!state.created.length && !state.written.length && !state.attached.length) continue;
+    try {
+      finishUnit({ db, indexCtx: null, now: () => now }, { run_id: row.id, unit_key: key, status: "organized", reason: "会话超时，按已写入内容自动结束" });
+    } catch (error) {
+      if (!(error instanceof AgentToolError)) throw error;
+    }
+  }
 }
 
 export function expireIdleAgentRuns(db: DatabaseSync, now: Date): number {
@@ -55,6 +86,7 @@ export function expireIdleAgentRuns(db: DatabaseSync, now: Date): number {
   for (const row of rows) {
     const lastActiveAt = parseJson<{ lastActiveAt?: string }>(row.scope_ids, {}).lastActiveAt ?? row.started_at;
     if (lastActiveAt && now.getTime() - Date.parse(lastActiveAt) < AGENT_IDLE_MS) continue;
+    finishWrittenUnits(db, row, now);
     updateRun(db, row.id, { status: "completed", finishedAt: now.toISOString(), progress: null });
     expired += 1;
   }

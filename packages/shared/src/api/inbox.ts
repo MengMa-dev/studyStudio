@@ -85,6 +85,8 @@ export const noteSummarySchema = z.object({
   targetId: z.string().nullable(),
   text: z.string(),
   origin: z.string(),
+  /** Entry notes only: section id the note is pinned to; null = whole-entry note. */
+  anchor: z.string().nullable().optional(),
   usedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string().nullable()

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { DataReindexResponse } from "@study-studio/shared";
+import { stripSectionMarkers, type DataReindexResponse } from "@study-studio/shared";
 import type { AiGateway } from "../../ai/gateway.js";
 import type { IndexableDocument, SearchIndex } from "../../search/index-api.js";
 
@@ -40,7 +40,7 @@ export function indexableDocuments(db: DatabaseSync): IndexableDocument[] {
     if (text) docs.push({ ownerType: "item", ownerId: item.id, text });
   }
   for (const entry of entries) {
-    const text = [entry.name, entry.summary, entry.body_markdown].filter(Boolean).join("\n\n").trim();
+    const text = [entry.name, entry.summary, entry.body_markdown && stripSectionMarkers(entry.body_markdown)].filter(Boolean).join("\n\n").trim();
     if (text) docs.push({ ownerType: "entry", ownerId: entry.id, text });
   }
   return docs;

@@ -8,7 +8,6 @@ import { useKbUiStore } from "@/stores/kb";
 import { useOrganizeStore } from "@/stores/organize";
 import { KbDeleteDialog } from "./KbDeleteDialog";
 import { KbGraph } from "./KbGraph";
-import { KbKindsDialog } from "./KbKindsDialog";
 import { categoryKey, KbCategoryTree, KbFlatList } from "./KbTree";
 
 export type IndexedEntry = Omit<KbTreeEntryNode, "children"> & { categoryId: string | null; categoryName: string | null; parentId: string | null };
@@ -33,9 +32,6 @@ const RELATIONS: [KbRelationType | "all", string][] = [
   ["contrasts", "对比"]
 ];
 
-/** Longer than MAX_KIND_LENGTH, so it can't collide with a kind name. */
-const MANAGE_KINDS = "__manage_kinds__";
-
 type Props = {
   q: string;
   kind: KbEntryKind | undefined;
@@ -49,7 +45,6 @@ export function KbPage({ q, kind, selectedId, onFilterChange }: Props) {
   const { checked, collapsed, graphRelation, toggleChecked, setChecked, clearChecked, toggleCollapsed, expand, setGraphRelation } = useKbUiStore();
   const [text, setText] = useState(q);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
-  const [kindsOpen, setKindsOpen] = useState(false);
   const kinds = useQuery({ queryKey: ["kb", "kinds"], queryFn: () => api.getKbKinds() });
   const filtering = Boolean(q.trim()) || Boolean(kind);
 
@@ -130,22 +125,17 @@ export function KbPage({ q, kind, selectedId, onFilterChange }: Props) {
             <select
               aria-label="类型筛选"
               value={kind ?? ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value === MANAGE_KINDS) setKindsOpen(true);
-                else onFilterChange({ q: text, kind: value || undefined });
-              }}
+              onChange={(event) => onFilterChange({ q: text, kind: event.target.value || undefined })}
             >
               <option value="">全部类型</option>
-              {kind && !kinds.data?.kinds.some((option) => option.name === kind && option.entryCount > 0) ? <option value={kind}>{kind}（0）</option> : null}
+              {kind && !kinds.data?.kinds.some((option) => option.name === kind) ? <option value={kind}>{kind}（0）</option> : null}
               {kinds.data?.kinds
-                .filter((option) => option.entryCount > 0)
+                .filter((option) => option.seed || option.entryCount > 0)
                 .map((option) => (
                   <option key={option.name} value={option.name}>
                     {option.name}（{option.entryCount}）
                   </option>
                 ))}
-              <option value={MANAGE_KINDS}>管理类型…</option>
             </select>
           </div>
           <div className={`kb-toolbar ${checkedIds.length ? "active" : ""}`}>
@@ -225,13 +215,6 @@ export function KbPage({ q, kind, selectedId, onFilterChange }: Props) {
           if (!open) setDeleteIds(null);
         }}
         onDeleted={(ids) => setChecked(ids, false)}
-      />
-      <KbKindsDialog
-        open={kindsOpen}
-        onOpenChange={setKindsOpen}
-        onRenamed={(from, to) => {
-          if (from === kind) onFilterChange({ q: text, kind: to });
-        }}
       />
     </>
   );

@@ -1,5 +1,7 @@
 # 16 方案与实施计划（外部 Agent 整理：MCP + Skill）
 
+> skill 流程（逐篇与用户确认方案）、写作规范（对齐 LLM Wiki）与写入工具（`write_entry` / `attach_source` / `add_relation` / `finish_unit`，取代 `submit_decision`）、`get_unit` 返回全文（不再分块读取）、`get_guidelines` 改为单一写作规范（不再按 stage 返回提示词）以 17 为准；MCP 传输、鉴权、会话、读取类工具仍按本文。
+
 目标：让用户在 Cursor / Claude Code / Codex 等 agent 中，通过本地服务暴露的 MCP 工具 + 一份薄 skill，自行完成收件箱整理。agent 负责阅读、抽取知识点、决定新建 / 补充 / 重复 / 拒绝并写作；**所有写入仍走 15 的校验与 ⑥ 入库链路**，产物与流水线同构（`organize_results`、整理记录、回收站撤销、索引全部复用）。
 
 ## 范围
@@ -197,8 +199,8 @@ skillVersion: 1
 | MCP 地址 / token | `http://127.0.0.1:<port>/mcp`、`mcp-token`（复制 / 重置） |
 | Cursor | `~/.cursor/mcp.json` 片段：`{ "mcpServers": { "study-studio": { "url": "...", "headers": { "Authorization": "Bearer <token>" } } } }` |
 | Claude Code | `claude mcp add --transport http study-studio <url> --header "Authorization: Bearer <token>"` |
-| Codex | `~/.codex/config.toml` 片段：`[mcp_servers.study-studio]`，`url` + `bearer_token_env_var` |
-| 安装 skill | 勾选目标（`~/.cursor/skills`、`~/.claude/skills`、`~/.codex/skills`）→ `POST /v1/agent/skill/install` 写入 `organize-kb/SKILL.md` |
+| Codex | `~/.codex/config.toml` 片段：`[mcp_servers.study-studio]`，`url` + `http_headers` |
+| 一键安装 | 每个 Agent 一个按钮 → `POST /v1/agent/install { target }`：写 `organize-kb/SKILL.md` 并注册 MCP（Cursor 合并 `mcp.json`；Codex 合并 `config.toml`；Claude Code 调 `claude mcp add`，失败返回手动命令）。`GET /v1/agent/config` 的 `installed` 表示 skill 存在且配置含当前 token；手动片段折叠在「手动配置」 |
 
 客户端配置格式以各家当前文档为准，片段放在前端常量，随客户端变化单独改。
 

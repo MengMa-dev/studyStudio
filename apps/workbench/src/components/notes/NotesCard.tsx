@@ -10,27 +10,57 @@ const ORIGIN_LABEL: Record<string, string> = {
   derived: "由收集点备注派生"
 };
 
-type Props = {
+type ListProps = {
   scope: "item" | "entry";
   targetId: string;
-  title: string;
-  hint: string;
+  /** Entry section id; null / omitted = whole-entry note. */
+  anchor?: string | null;
   notes: NoteSummary[];
   invalidateKey: QueryKey;
+  placeholder?: string;
+  /** Hides the add form behind a button and the empty hint (margin notes). */
+  compact?: boolean;
 };
 
+type Props = Omit<ListProps, "compact"> & { title: string; hint: string };
+
 /** Note card with add / edit / delete; adding a note never triggers organizing (03 三类备注). */
-export function NotesCard({ scope, targetId, title, hint, notes, invalidateKey }: Props) {
+export function NotesCard({ title, hint, ...list }: Props) {
+  return (
+    <div className="card">
+      <div className="card-title">
+        {title}
+        <span className="more muted">{list.notes.length} 条</span>
+      </div>
+      <div className="small faint" style={{ margin: "-4px 0 10px", lineHeight: 1.6 }}>
+        {hint}
+      </div>
+      <NotesList {...list} />
+    </div>
+  );
+}
+
+export function NotesList({
+  scope,
+  targetId,
+  anchor = null,
+  notes,
+  invalidateKey,
+  placeholder = "写下你的理解、疑问或希望整理时关注的点…",
+  compact = false
+}: ListProps) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState(!compact);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const refresh = () => queryClient.invalidateQueries({ queryKey: invalidateKey });
 
   const add = useMutation({
-    mutationFn: (text: string) => api.createNote({ scope, targetId, text: text.trim(), origin: "workbench" }),
+    mutationFn: (text: string) => api.createNote({ scope, targetId, text: text.trim(), origin: "workbench", ...(anchor && { anchor }) }),
     onSuccess: async () => {
       setDraft("");
+      if (compact) setAdding(false);
       await refresh();
     }
   });
@@ -47,16 +77,9 @@ export function NotesCard({ scope, targetId, title, hint, notes, invalidateKey }
   });
 
   return (
-    <div className="card">
-      <div className="card-title">
-        {title}
-        <span className="more muted">{notes.length} 条</span>
-      </div>
-      <div className="small faint" style={{ margin: "-4px 0 10px", lineHeight: 1.6 }}>
-        {hint}
-      </div>
+    <>
       <div className="stack" style={{ gap: 8 }}>
-        {notes.length ? null : <div className="small faint">还没有备注</div>}
+        {notes.length || compact ? null : <div className="small faint">还没有备注</div>}
         {notes.map((note) =>
           editingId === note.id ? (
             <div key={note.id} className="note">
@@ -80,7 +103,7 @@ export function NotesCard({ scope, targetId, title, hint, notes, invalidateKey }
               <div>{note.text}</div>
               <div className="row small faint" style={{ marginTop: 6, flexWrap: "wrap" }}>
                 {ORIGIN_LABEL[note.origin] ?? note.origin}
-                {note.usedAt ? null : <span className="tag orange">未用于整理</span>}
+                {scope === "item" && !note.usedAt ? <span className="tag orange">未用于整理</span> : null}
                 <div className="grow" />
                 <button
                   type="button"
@@ -100,20 +123,34 @@ export function NotesCard({ scope, targetId, title, hint, notes, invalidateKey }
           )
         )}
       </div>
-      <textarea
-        className="input"
-        rows={3}
-        style={{ marginTop: 10 }}
-        aria-label="新备注"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder="写下你的理解、疑问或希望整理时关注的点…"
-      />
-      <div className="row" style={{ marginTop: 8, justifyContent: "flex-end" }}>
-        <button type="button" className="btn sm primary" disabled={!draft.trim() || add.isPending} onClick={() => add.mutate(draft)}>
-          添加备注
+      {adding ? (
+        <>
+          <textarea
+            className="input"
+            rows={compact ? 2 : 3}
+            style={{ marginTop: compact ? 8 : 10 }}
+            aria-label="新备注"
+            autoFocus={compact}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={placeholder}
+          />
+          <div className="row" style={{ marginTop: 8, justifyContent: "flex-end" }}>
+            {compact ? (
+              <button type="button" className="btn sm ghost" onClick={() => setAdding(false)}>
+                取消
+              </button>
+            ) : null}
+            <button type="button" className="btn sm primary" disabled={!draft.trim() || add.isPending} onClick={() => add.mutate(draft)}>
+              添加备注
+            </button>
+          </div>
+        </>
+      ) : (
+        <button type="button" className="btn sm ghost kb-margin-add" onClick={() => setAdding(true)}>
+          + 添加备注
         </button>
-      </div>
-    </div>
+      )}
+    </>
   );
 }

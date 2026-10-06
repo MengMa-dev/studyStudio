@@ -112,7 +112,9 @@ export function getKbTree(db: DatabaseSync, query: KbTreeQuery = {}): KbTreeResp
     };
   };
 
-  const categoryNodes = [...categories.values()].map((category) => categoryNode(category.id, category.name ?? "", category.description));
+  const categoryNodes = [...categories.values()]
+    .map((category) => categoryNode(category.id, category.name ?? "", category.description))
+    .filter((node) => node.entryCount > 0);
   if (rootsByCategory.has(null)) categoryNodes.push(categoryNode(null, UNCATEGORIZED_NAME, null));
   return { mode: "tree", categories: categoryNodes, entries: [], total: views.size };
 }

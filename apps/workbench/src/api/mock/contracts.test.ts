@@ -21,20 +21,19 @@ describe("mock 知识库 / 整理 / AI 接口符合共享契约", () => {
 
   it("词条类型：列表、改名合并、编辑类型", async () => {
     const { kinds } = await mockApi.getKbKinds();
-    expect(kinds.slice(0, 3).map((kind) => kind.name)).toEqual(["概念", "方法", "算法"]);
-    expect(kinds.find((kind) => kind.name === "工具")).toEqual({ name: "工具", entryCount: 0, seed: true });
+    expect(kinds.slice(0, 3).map((kind) => kind.name)).toEqual(["概念", "原理", "事实"]);
+    expect(kinds.find((kind) => kind.name === "规范")).toEqual({ name: "规范", entryCount: 0, seed: true });
     const count = (list: typeof kinds, name: string) => list.find((kind) => kind.name === name)?.entryCount;
 
-    expect(await mockApi.renameKbKind({ from: "论文", to: "论文" })).toEqual({ updated: 0 });
-    expect(await mockApi.renameKbKind({ from: "论文", to: "概念" })).toEqual({ updated: count(kinds, "论文") });
+    expect(await mockApi.renameKbKind({ from: "工具/资源", to: "工具/资源" })).toEqual({ updated: 0 });
+    expect(await mockApi.renameKbKind({ from: "工具/资源", to: "概念" })).toEqual({ updated: count(kinds, "工具/资源") });
     const merged = (await mockApi.getKbKinds()).kinds;
-    expect(count(merged, "概念")).toBe(count(kinds, "概念")! + count(kinds, "论文")!);
-    expect(count(merged, "论文")).toBe(0);
+    expect(count(merged, "概念")).toBe(count(kinds, "概念")! + count(kinds, "工具/资源")!);
+    expect(count(merged, "工具/资源")).toBe(0);
 
-    await mockApi.patchKbEntry("kb-bm25", { kind: "评测指标" });
-    const custom = (await mockApi.getKbKinds()).kinds;
-    expect(custom.at(-1)).toEqual({ name: "评测指标", entryCount: 1, seed: false });
-    expect((await mockApi.getKbEntry("kb-bm25")).kind).toBe("评测指标");
+    await mockApi.patchKbEntry("kb-bm25", { kind: "技巧" });
+    expect((await mockApi.getKbEntry("kb-bm25")).kind).toBe("技巧");
+    await expect(mockApi.patchKbEntry("kb-bm25", { kind: "评测指标" as never })).rejects.toThrow();
   });
 
   it("知识库目录、详情、编辑与删除", async () => {
@@ -50,6 +49,10 @@ describe("mock 知识库 / 整理 / AI 接口符合共享契约", () => {
     const detail = await mockApi.getKbEntry("kb-cross");
     expect(detail.suggestRewrite).toBe(true);
     expect(detail.breadcrumb.map((crumb) => crumb.name)).toEqual(["检索", "重排", "交叉编码器"]);
+    expect(detail.sections).toEqual([
+      { id: "s_cross001", heading: "定义", sourceItemIds: ["item-q1"] },
+      { id: "s_cross002", heading: "用法", sourceItemIds: ["item-p2"] }
+    ]);
 
     const edited = await mockApi.patchKbEntry("kb-cross", { bodyMarkdown: "## 新正文", mastery: 0.9 });
     expect(edited.userEdited && edited.dirty).toBe(true);

@@ -1,8 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
+import { parseSections, serializeSections } from "@study-studio/shared";
 import { withTransaction } from "../../db/database.js";
 import type { ItemRow } from "../../db/types.js";
 import { cleanupOrphanBlobs } from "../data/cleanup.js";
 import type { ItemTrashPayload } from "../inbox/delete.js";
+import { VERBATIM_MIN_RATIO, verbatimRatio } from "../organize/verify.js";
 import { selectIn } from "../inbox/sql.js";
 import { TrashConflictError, type TrashHandler, type TrashRecord } from "./registry.js";
 
@@ -18,7 +20,9 @@ function payloadOf(record: TrashRecord): ItemTrashPayload {
       sources: kb.sources ?? [],
       edges: kb.edges ?? [],
       edgeSources: kb.edgeSources ?? [],
-      organizeResults: kb.organizeResults ?? []
+      organizeResults: kb.organizeResults ?? [],
+      bodies: kb.bodies ?? [],
+      noteAnchors: kb.noteAnchors ?? []
     },
     ruleIds: payload.ruleIds ?? []
   };
@@ -31,6 +35,42 @@ function insertRow(db: DatabaseSync, table: string, row: object, conflict: "IGNO
   db.prepare(`INSERT OR ${conflict} INTO ${table}(${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`).run(
     ...entries.map(([, value]) => value as string | number | null)
   );
+}
+
+/**
+ * Puts back sections removed by the delete cascade. Untouched entries get the pre-delete body verbatim; entries edited
+ * since get the missing sections appended (unless a marked section already contains their text) and the items re-added to surviving sections.
+ */
+export function mergeRestoredSections(current: string, before: string, itemIds: readonly string[]): string {
+  const sections = parseSections(current);
+  const byId = new Map(sections.flatMap((section) => (section.id ? [[section.id, section] as const] : [])));
+  const restored = new Set(itemIds);
+  for (const section of parseSections(before)) {
+    const back = section.sourceItemIds.filter((id) => restored.has(id));
+    if (!section.id || back.length === 0) continue;
+    const existing =
+      byId.get(section.id) ?? sections.find((candidate) => candidate.id !== null && verbatimRatio(section.markdown, candidate.markdown) >= VERBATIM_MIN_RATIO);
+    if (existing) existing.sourceItemIds = [...new Set([...existing.sourceItemIds, ...back])];
+    else sections.push(section);
+  }
+  return serializeSections(sections);
+}
+
+function restoreBodies(db: DatabaseSync, kb: ItemTrashPayload["kb"], itemIds: readonly string[]): void {
+  const snapshots = new Map(kb.entries.map((entry) => [entry.id, entry]));
+  const select = db.prepare("SELECT body_markdown FROM kb_entries WHERE id = ?");
+  const update = db.prepare("UPDATE kb_entries SET body_markdown = ?, updated_at = ? WHERE id = ?");
+  for (const { entryId, after } of kb.bodies ?? []) {
+    const snapshot = snapshots.get(entryId);
+    const row = select.get(entryId) as { body_markdown: string | null } | undefined;
+    if (!snapshot || !row) continue;
+    const before = snapshot.body_markdown ?? "";
+    const current = row.body_markdown ?? "";
+    if (current === after) update.run(before, snapshot.updated_at, entryId);
+    else update.run(mergeRestoredSections(current, before, itemIds), new Date().toISOString(), entryId);
+  }
+  const reanchor = db.prepare("UPDATE notes SET anchor = ? WHERE id = ? AND anchor IS NULL");
+  for (const note of kb.noteAnchors ?? []) reanchor.run(note.anchor, note.id);
 }
 
 function restoreItems(db: DatabaseSync, record: TrashRecord): { restoredItemCount: number; restoredNoteCount: number } {
@@ -59,6 +99,7 @@ function restoreItems(db: DatabaseSync, record: TrashRecord): { restoredItemCoun
     for (const edge of kb.edges) insertRow(db, "kb_edges", edge);
     for (const source of kb.edgeSources) insertRow(db, "kb_edge_sources", source);
     for (const result of kb.organizeResults) insertRow(db, "organize_results", result);
+    restoreBodies(db, kb, payload.itemIds);
 
     const deleteRule = db.prepare("DELETE FROM rules WHERE id = ?");
     for (const id of payload.ruleIds) deleteRule.run(id);

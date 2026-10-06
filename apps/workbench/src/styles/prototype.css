@@ -135,6 +135,7 @@ svg.i {
 .sidebar-bottom {
   margin-top: auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
 }
 .sidebar-footer {
@@ -549,6 +550,14 @@ body.is-organizing [data-organize-scope] {
   background: var(--panel);
   width: 100%;
 }
+select.input {
+  appearance: none;
+  padding-right: 30px;
+  background: var(--panel)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23868e96' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 10px center;
+  text-overflow: ellipsis;
+}
 .input:focus {
   outline: 2px solid var(--primary-soft);
   border-color: var(--primary);
@@ -876,6 +885,9 @@ table.table {
   gap: 18px;
   align-content: start;
   padding: 8px 0 24px;
+}
+.chat-end {
+  scroll-margin-bottom: 120px;
 }
 .chat-dock {
   position: sticky;

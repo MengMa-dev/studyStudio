@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { stripSectionMarkers } from "@study-studio/shared";
 import { chunkText } from "../../search/chunk.js";
 import type { SearchIndex } from "../../search/index-api.js";
 import { segmentText } from "../../search/segment.js";
@@ -65,7 +66,7 @@ export async function indexEntrySummary(ctx: IndexContext, entry: EntryRecord): 
 export async function indexEntryBody(ctx: IndexContext, entry: EntryRecord): Promise<void> {
   if (!ctx.searchIndex) return;
   const indexCtx = { ...ctx, searchIndex: ctx.searchIndex };
-  const text = entry.body.trim();
+  const text = stripSectionMarkers(entry.body).trim();
   if (!text) {
     clearOwner(ctx.db, ctx.searchIndex, ENTRY_OWNER.body, entry.id);
     return;

@@ -34,8 +34,8 @@ function fakeIndex() {
     indexDocument: async (doc) => {
       indexed.push(doc);
     },
-    deleteOwner: (_type, id) => {
-      deleted.push(id);
+    deleteOwner: (type, id) => {
+      deleted.push(`${type}:${id}`);
     }
   };
   return { index, indexed, deleted };
@@ -44,9 +44,11 @@ function fakeIndex() {
 test("tree: categories with recursive part_of nesting, markers and category stats", (t) => {
   const appDb = seedKb();
   t.after(() => appDb.close());
+  appDb.db.prepare("INSERT INTO kb_categories (id, name, sort) VALUES ('cat-empty', '空分类', 9)").run();
   const tree = kbTreeResponseSchema.parse(getKbTree(appDb.db));
   assert.equal(tree.mode, "tree");
   assert.equal(tree.total, 6);
+  assert.ok(!tree.categories.some((c) => c.id === "cat-empty"), "empty categories are hidden");
   assert.deepEqual(
     tree.categories.map((c) => [c.id, c.name, c.entryCount]),
     [
@@ -67,7 +69,7 @@ test("tree: categories with recursive part_of nesting, markers and category stat
   assert.equal(cross.userEdited, true);
 
   const agent = tree.categories[1]!.children[0]!;
-  assert.equal(agent.kind, "设计模式");
+  assert.equal(agent.kind, "技巧");
   assert.equal(agent.stale, true);
   assert.equal(agent.orphan, true);
   assert.equal(agent.mastery, 0.5, "no sources keeps the stored value");
@@ -110,10 +112,10 @@ test("tree: q / kind switch to flat mode", (t) => {
     getKbTree(appDb.db, { q: "cross-ENCODER" }).entries.map((e) => e.id),
     ["kb-cross"]
   );
-  const models = getKbTree(appDb.db, { kind: "模型" });
-  assert.deepEqual(models.entries.map((e) => e.id).sort(), ["kb-bi", "kb-cross"]);
-  assert.equal(models.total, 2);
-  const misc = getKbTree(appDb.db, { kind: "论文" }).entries[0]!;
+  const models = getKbTree(appDb.db, { kind: "工具/资源" });
+  assert.deepEqual(models.entries.map((e) => e.id).sort(), ["kb-bi", "kb-cross", "kb-misc"]);
+  assert.equal(models.total, 3);
+  const misc = getKbTree(appDb.db, { kind: "工具/资源" }).entries.find((e) => e.id === "kb-misc")!;
   assert.equal(misc.categoryId, null);
   assert.equal(misc.categoryName, null);
   assert.equal(getKbTree(appDb.db, { q: "已删除" }).total, 0);
@@ -162,6 +164,40 @@ test("detail: body, notes, sources/evidence, relations with direction, same cate
   assert.equal(detail.renderedSections.contrasts.length, 0);
   assert.equal(detail.orphan, false);
   assert.equal(detail.dirty, false);
+});
+
+test("detail: marked sections in body order; organize requirements / derived notes hidden", (t) => {
+  const appDb = seedKb();
+  t.after(() => appDb.close());
+  const body = [
+    "前言",
+    "## 定义",
+    "<!-- section:s_aaaaaaaa src:item-a,item-b -->",
+    "召回后重排。",
+    "## 我的笔记",
+    "手写内容",
+    "## 搭建",
+    "<!-- section:s_bbbbbbbb src:item-b -->",
+    "```md",
+    "## 不是章节",
+    "```"
+  ].join("\n");
+  appDb.db.prepare("UPDATE kb_entries SET body_markdown = ? WHERE id = 'kb-rerank'").run(body);
+  appDb.db
+    .prepare(
+      "INSERT INTO notes (id, scope, target_id, text, origin, created_at) VALUES ('n-req', 'entry', 'kb-rerank', '只留摘要', 'organize_requirement', '2026-09-22T00:00:00.000Z'), ('n-der', 'entry', 'kb-rerank', '派生', 'derived', '2026-09-22T00:00:00.000Z')"
+    )
+    .run();
+  const detail = kbEntryDetailSchema.parse(getKbEntryDetail(appDb.db, "kb-rerank"));
+  assert.equal(detail.bodyMarkdown, body, "raw body keeps markers for the editor");
+  assert.deepEqual(detail.sections, [
+    { id: "s_aaaaaaaa", heading: "定义", sourceItemIds: ["item-a", "item-b"] },
+    { id: "s_bbbbbbbb", heading: "搭建", sourceItemIds: ["item-b"] }
+  ]);
+  assert.deepEqual(
+    detail.notes.map((n) => [n.id, n.anchor]),
+    [["note-entry", null]]
+  );
 });
 
 test("detail: rendered contrasts / faqs, unknown entry → null", (t) => {
@@ -301,7 +337,7 @@ test("delete → trash snapshot → restore brings everything back; kb_ignore is
 
   const result = deleteKbEntries(db, { ids: ["kb-rerank", "kb-rerank"], ignore: true }, { searchIndex: index, now })!;
   assert.equal(result.deletedEntryCount, 1);
-  assert.deepEqual(deleted, ["kb-rerank"]);
+  assert.deepEqual(deleted, ["entry_summary:kb-rerank", "entry_name:kb-rerank", "entry:kb-rerank"]);
 
   assert.equal(getKbEntryDetail(db, "kb-rerank"), null);
   const tree = getKbTree(db);

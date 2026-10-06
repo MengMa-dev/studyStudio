@@ -1,28 +1,34 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { knowledgeComposeOutputSchema } from "../../ai/prompts/schemas.draft.js";
 import { estimateTokens } from "../../search/chunk.js";
 import { searchFts } from "../../search/fts.js";
 import { getKbEntryDetail } from "../kb/index.js";
-import { chunkUnit } from "../organize/chunk.js";
 import type { IndexContext } from "../organize/kb-index.js";
-import { kindVocabulary } from "../organize/kinds.js";
+import { parseSections, SEED_KINDS, stripSectionMarkers } from "@study-studio/shared";
 import { normalizeEntryName } from "../organize/normalize.js";
 import type { WorkUnit } from "../organize/process.js";
 import { NAME_MATCH_SIMILARITY, RetrievalCache, retrieveCandidates } from "../organize/retrieve.js";
-import { getRunRow } from "../organize/run-store.js";
 import { ENTRY_OWNER } from "../organize/runtime-types.js";
-import { rejectReasonSchema } from "../organize/schemas.js";
-import { categoryName, categoryNames, kbIgnoreNames, listAliveEntries, outlineOf, type OrganizeItem } from "../organize/store.js";
+import { categoryName, categoryNames, fuzzyNotesNear, kbIgnoreNames, listAliveEntries, loadEntry, type OrganizeItem } from "../organize/store.js";
+import { addToInbox } from "./capture.js";
 import { AgentToolError } from "./errors.js";
 import { buildGuidelines } from "./guidelines.js";
 import { finishAgentSession, startAgentSession } from "./session.js";
-import { submitDecision, submitDecisionSchema, submitPointsSchema } from "./submit.js";
+import {
+  addRelation,
+  addRelationSchema,
+  attachSource,
+  attachSourceSchema,
+  finishUnit,
+  finishUnitSchema,
+  writeEntry,
+  writeEntrySchema
+} from "./submit.js";
 import { findUnit, pendingUnits, unitKey } from "./units.js";
 
-/** MCP tool definitions (16). Results are wrapped as `{ ok: true, ...payload }` / `{ ok: false, error, message, details? }`. */
+/** MCP tool definitions. Results are wrapped as `{ ok: true, ...payload }` / `{ ok: false, error, message, details? }`. */
 
-export const AGENT_SKILL_VERSION = 1;
+export const AGENT_SKILL_VERSION = 3;
 
 export type AgentToolDeps = { db: DatabaseSync; indexCtx: IndexContext | null; now: () => Date };
 
@@ -130,9 +136,9 @@ async function searchKb(deps: AgentToolDeps, query: string, limit: number) {
 
 const getGuidelinesTool = defineAgentTool({
   name: "get_guidelines",
-  description: "获取整理规则（判定 / 抽取知识点 / 组织写作 / Agent 补充约束）。整理前先调用，后续判断与写作严格按其规则。",
-  input: z.object({ stage: z.enum(["triage", "extract", "compose", "all"]).optional() }),
-  handler: async (_deps, input) => buildGuidelines(input.stage ?? "all")
+  description: "获取整理规范（LLM Wiki 维护者的流程与写作规范）。整理前先调用，后续汇报方案与写入严格按其规范。",
+  input: z.object({}),
+  handler: async () => buildGuidelines()
 });
 
 const listInboxTool = defineAgentTool({
@@ -166,13 +172,14 @@ const listInboxTool = defineAgentTool({
 
 const getUnitTool = defineAgentTool({
   name: "get_unit",
-  description: "读取单元全文（分块）、用户划线与笔记。引文须从 chunks 原文摘录。",
+  description: "读取单元全文（网页 / 文档为 text，问答为 turns：每轮问题与完整回答）、用户划线、条目备注与同期模糊备注。",
   input: z.object({ unit_key: z.string().min(1) }),
   handler: async (deps, input) => {
     const unit = requireUnit(deps.db, input.unit_key);
     const anchor = unit.items[0]!;
     const highlights = unit.items.flatMap((item) => item.highlights);
     const notes = unit.items.flatMap((item) => item.itemNotes.map((note) => note.text));
+    const conversation = anchor.type === "conversation";
     return {
       unit_key: unitKey(unit),
       item_ids: unit.items.map((item) => item.id),
@@ -183,7 +190,11 @@ const getUnitTool = defineAgentTool({
       has_highlight: highlights.length > 0,
       user_highlights: highlights,
       user_note: notes.length > 0 ? notes.join("\n\n") : null,
-      chunks: chunkUnit(unit)
+      fuzzy_notes: fuzzyNotesNear(deps.db, anchor.capturedAt).map((note) => note.text),
+      text: conversation ? null : anchor.body,
+      turns: conversation
+        ? unit.items.map((item, index) => ({ turn_item_id: item.id, turn_index: index + 1, question: item.question ?? item.title, answer: item.body }))
+        : null
     };
   }
 });
@@ -197,11 +208,12 @@ const searchKbTool = defineAgentTool({
 
 const getEntryTool = defineAgentTool({
   name: "get_entry",
-  description: "读取词条详情（正文、大纲、关系），用于与新内容对比。",
+  description: "读取词条详情（正文、章节 sections、关系），用于与新内容对比；attach_source 的 section_id 从 sections 中取。",
   input: z.object({ entry_id: z.string().min(1) }),
   handler: async (deps, input) => {
     const detail = getKbEntryDetail(deps.db, input.entry_id);
-    if (!detail) throw new AgentToolError("entry_not_found", "词条不存在或已删除");
+    const raw = loadEntry(deps.db, input.entry_id)?.body;
+    if (!detail || raw === undefined) throw new AgentToolError("entry_not_found", "词条不存在或已删除");
     return {
       entry_id: detail.id,
       name: detail.name,
@@ -209,8 +221,10 @@ const getEntryTool = defineAgentTool({
       kind: detail.kind,
       category: detail.categoryName,
       summary: detail.summary,
-      body: detail.bodyMarkdown,
-      outline: outlineOf(detail.bodyMarkdown),
+      body: stripSectionMarkers(raw),
+      sections: parseSections(raw)
+        .filter((section) => section.id)
+        .map((section) => ({ section_id: section.id, heading: section.heading, source_item_ids: section.sourceItemIds })),
       user_edited: detail.userEdited,
       relations: detail.relations.map((relation) => ({ entry_id: relation.id, name: relation.name, type: relation.type, direction: relation.direction }))
     };
@@ -221,12 +235,12 @@ const listVocabTool = defineAgentTool({
   name: "list_vocab",
   description: "列出可用词条类型、分类与忽略名单；选择 kind / 分类时优先复用。",
   input: z.object({}),
-  handler: async (deps) => ({ kinds: kindVocabulary(deps.db), categories: categoryNames(deps.db), ignored_names: kbIgnoreNames(deps.db) })
+  handler: async (deps) => ({ kinds: [...SEED_KINDS], categories: categoryNames(deps.db), ignored_names: kbIgnoreNames(deps.db) })
 });
 
 const startSessionTool = defineAgentTool({
   name: "start_session",
-  description: "开始整理会话，返回 run_id（后续 submit_decision / finish_session 需传入）。自动整理或其他会话运行中时返回 busy。",
+  description: "开始整理会话，返回 run_id（后续写入工具与 finish_session 需传入）。自动整理或其他会话运行中时返回 busy。",
   input: z.object({ client: z.string().max(64).optional() }),
   handler: async (deps, input) => {
     const started = startAgentSession(deps.db, input.client ?? null);
@@ -237,38 +251,78 @@ const startSessionTool = defineAgentTool({
 
 const finishSessionTool = defineAgentTool({
   name: "finish_session",
-  description: "结束整理会话并返回本次统计。summary 可说明未完成或多次校验失败的单元。",
+  description: "结束整理会话并返回本次统计。summary 可说明未完成或跳过的单元。",
   input: z.object({ run_id: z.string().min(1), summary: z.string().optional() }),
   handler: async (deps, input) => ({ stats: finishAgentSession(deps.db, input.run_id, input.summary ?? null) })
 });
 
-const submitDecisionTool = defineAgentTool({
-  name: "submit_decision",
+const writeEntryTool = defineAgentTool({
+  name: "write_entry",
   description:
-    "提交一个单元的整理结果（每单元一次）。decision=compose 需 value_score / thesis / points / compose；duplicate 需 target_entry_ids（划线 / 笔记过的单元不能判 duplicate）；reject 需 reject_reason；not_learning 只需 reason。校验失败不落库，按返回的 error / details 修正后重交。",
-  // MCP clients only see object schemas; the discriminated union is enforced in the handler.
+    "向词条追加章节（用户确认方案后调用）。填 entry_id 补充已有词条，或填 new 新建词条（name、aliases、kind、category、summary；与已有名称 / 别名重名时返回 name_exists 与 entry_id）。sections 每项为一个 ## 章节：heading、markdown（章节内只用 ### 及以下标题）、source_item_ids（内容来自的条目 / 问答轮 id，须属于该单元）。服务端生成章节标记，返回 section_id。",
+  input: writeEntrySchema,
+  handler: (deps, input) => writeEntry(deps, input)
+});
+
+const attachSourceTool = defineAgentTool({
+  name: "attach_source",
+  description: "来源内容已被某个已有章节完整覆盖时，给该章节追加来源（不写正文）。section_id 从 get_entry 的 sections 中取，item_ids 须属于该单元。",
+  input: attachSourceSchema,
+  handler: async (deps, input) => attachSource(deps, input)
+});
+
+const addRelationTool = defineAgentTool({
+  name: "add_relation",
+  description: "建立词条关系。from / to 填 entry_id 或词条名；type：prerequisite（前置）/ part_of（组成部分）/ contrasts（对比）/ related（相关）；description 一句话说明关系。",
+  input: addRelationSchema,
+  handler: async (deps, input) => addRelation(deps, input)
+});
+
+const finishUnitTool = defineAgentTool({
+  name: "finish_unit",
+  description:
+    "结束一个单元并更新条目状态：organized（已写入词条）/ rejected（低价值，附 reject_reason）/ not_learning（非学习内容）/ skipped（用户要求跳过，不改状态）。reason 简述理由。",
+  input: finishUnitSchema,
+  handler: async (deps, input) => finishUnit(deps, input)
+});
+
+const addToInboxTool = defineAgentTool({
+  name: "add_to_inbox",
+  description:
+    "把当前 Agent 对话或本地文本文件原文录入收件箱，返回 unit_key（之后按整理流程处理）。source=conversation 需 turns（每轮用户原话 question 与回答原文 answer，逐字照录不改写）；source=file 需 file_path（绝对路径，服务端直接读取原文）。agent 填当前 Agent 名（Cursor / Claude Code / Codex），作为收件箱来源。",
   input: z.object({
-    run_id: z.string(),
-    unit_key: z.string(),
-    decision: z.enum(["compose", "duplicate", "reject", "not_learning"]),
-    reason: z.string(),
-    value_score: z.number().min(0).max(1).optional(),
-    thesis: z.string().optional(),
-    points: submitPointsSchema.optional(),
-    compose: knowledgeComposeOutputSchema.optional(),
-    target_entry_ids: z.array(z.string()).optional(),
-    evidence: z.array(z.object({ entry_id: z.string(), quote: z.string() })).optional(),
-    reject_reason: rejectReasonSchema.optional()
+    agent: z.string().trim().min(1).max(64),
+    source: z.enum(["conversation", "file"]),
+    turns: z.array(z.object({ question: z.string().trim().min(1), answer: z.string().trim().min(1) })).max(200).optional(),
+    file_path: z.string().min(1).optional()
   }),
   handler: async (deps, input) => {
-    const parsed = submitDecisionSchema.safeParse(input);
-    if (!parsed.success) throw new AgentToolError("invalid_input", "参数不符合该 decision 的要求", z.treeifyError(parsed.error));
-    const model = getRunRow(deps.db, input.run_id)?.model ?? "";
-    return submitDecision(deps, parsed.data, model.startsWith("agent:") ? model.slice("agent:".length) : null);
+    if (input.source === "conversation" && !input.turns?.length) throw new AgentToolError("invalid_input", "source=conversation 需要 turns");
+    if (input.source === "file" && !input.file_path) throw new AgentToolError("invalid_input", "source=file 需要 file_path");
+    const ids = addToInbox(
+      deps.db,
+      input.source === "file" ? { agent: input.agent, source: "file", filePath: input.file_path! } : { agent: input.agent, source: "conversation", turns: input.turns! },
+      deps.now()
+    );
+    const unit = pendingUnits(deps.db).find((candidate) => candidate.items.some((item) => item.id === ids[0]));
+    return { unit_key: unit ? unitKey(unit) : ids[0], item_ids: ids };
   }
 });
 
-/** Read + session tools; write tools are appended here. */
 export function agentTools(): AgentTool<any>[] {
-  return [getGuidelinesTool, listInboxTool, getUnitTool, searchKbTool, getEntryTool, listVocabTool, startSessionTool, finishSessionTool, submitDecisionTool];
+  return [
+    getGuidelinesTool,
+    listInboxTool,
+    getUnitTool,
+    searchKbTool,
+    getEntryTool,
+    listVocabTool,
+    startSessionTool,
+    finishSessionTool,
+    writeEntryTool,
+    attachSourceTool,
+    addRelationTool,
+    finishUnitTool,
+    addToInboxTool
+  ];
 }

@@ -75,6 +75,15 @@ test("⑥ alignment: match id, normalized name, embedding>0.92, kb_ignore", () =
   });
   assert.equal(created.action, "create_new");
 
+  const staleVector = decideAlignment({
+    match: "new",
+    name: "LLM Wiki",
+    existing_entries: entries,
+    kb_ignore_names: [],
+    name_similarities: [{ entry_id: "kb_deleted", similarity: 0.99 }]
+  });
+  assert.equal(staleVector.action, "create_new");
+
   assert.equal(demoteNewBodyToSupplement("正文").heading, "## 补充");
 });
 

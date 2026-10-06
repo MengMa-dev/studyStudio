@@ -1,14 +1,28 @@
+import { useMemo, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import type { KbEntryDetail } from "@study-studio/shared";
+import { parseSections, type KbEntryDetail } from "@study-studio/shared";
 import { RichMarkdown } from "@/components/ui/RichMarkdown";
 
-export function KbEntryBody({ entry }: { entry: KbEntryDetail }) {
+type Props = {
+  entry: KbEntryDetail;
+  /** Rendered after each marked section (narrow-screen margin). */
+  sectionAside?: (sectionId: string) => ReactNode;
+};
+
+export function KbEntryBody({ entry, sectionAside }: Props) {
   const { contrasts, faqs } = entry.renderedSections;
+  const sections = useMemo(() => parseSections(entry.bodyMarkdown), [entry.bodyMarkdown]);
   return (
     <>
       {entry.summary ? <p className="lead">{entry.summary}</p> : null}
       <h3>正文</h3>
-      <RichMarkdown markdown={entry.bodyMarkdown || "_暂无正文_"} className="wiki-body" />
+      {sections.length ? null : <RichMarkdown markdown="_暂无正文_" className="wiki-body" />}
+      {sections.map((section, index) => (
+        <section key={section.id ?? `p-${index}`} className="kb-section" data-section-id={section.id ?? undefined}>
+          <RichMarkdown markdown={section.heading === null ? section.markdown : `## ${section.heading}\n\n${section.markdown}`} className="wiki-body" />
+          {section.id && sectionAside ? sectionAside(section.id) : null}
+        </section>
+      ))}
       {contrasts.map((contrast) => (
         <section key={contrast.entryId} className="kb-rendered">
           <h3>

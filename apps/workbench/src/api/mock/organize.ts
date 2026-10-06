@@ -7,6 +7,7 @@ import {
   organizeRunsQuerySchema,
   organizeRunsResponseSchema,
   organizeRunStartResponseSchema,
+  organizeRunTraceResponseSchema,
   organizeSettingsResponseSchema,
   organizeSettingsUpdateSchema,
   type Note,
@@ -21,6 +22,7 @@ import {
   type OrganizeSettings,
   type OrganizeSettingsUpdate,
   type OrganizeStage,
+  type OrganizeTraceStep,
   type OrganizeTrigger
 } from "@study-studio/shared";
 
@@ -38,6 +40,185 @@ function emptyStats(): OrganizeRunStats {
     kb: { entriesCreated: 0, relationsCreated: 0, entriesSupplemented: 0, entriesRewritten: 0 },
     stages: []
   };
+}
+
+function sampleTrace(): OrganizeTraceStep[] {
+  const steps: Array<Omit<OrganizeTraceStep, "seq" | "createdAt" | "model" | "inputTokens" | "outputTokens" | "entryId"> & Partial<OrganizeTraceStep>> = [
+    {
+      stage: "context",
+      step: "context",
+      itemIds: ["item-p2", "item-q1", "item-p3", "item-p1"],
+      episodeId: null,
+      input: { trigger: "daily", is_manual: false, anchor_item_ids: ["item-p2", "item-q1", "item-p3", "item-p1"] },
+      output: { learner_profile: { role: "算法工程师", learning_focus: [{ topic: "检索与重排" }] }, recent_kb_topics: ["重排", "向量检索"], timeline_units: 42, window_items: [] }
+    },
+    {
+      stage: "episode",
+      step: "episodes",
+      itemIds: [],
+      episodeId: null,
+      input: { timeline_units: 42, is_manual: false },
+      output: [
+        {
+          episode_id: "ep_a1",
+          status: "ready",
+          prefilter_reason: null,
+          started_at: "2026-09-30T12:02:00.000Z",
+          ended_at: "2026-09-30T12:48:00.000Z",
+          active_seconds: 2280,
+          flags: [],
+          item_ids: ["item-p2", "item-q1"],
+          anchor_item_ids: ["item-p2", "item-q1"],
+          judge_input: { timeline: [{ t: "20:02", kind: "search", query: "cross encoder vs bi-encoder" }] }
+        },
+        {
+          episode_id: "ep_b2",
+          status: "ready",
+          prefilter_reason: null,
+          started_at: "2026-09-30T13:30:00.000Z",
+          ended_at: "2026-09-30T13:41:00.000Z",
+          active_seconds: 540,
+          flags: [],
+          item_ids: ["item-p3", "item-p1"],
+          anchor_item_ids: ["item-p3", "item-p1"],
+          judge_input: { timeline: [] }
+        }
+      ]
+    },
+    {
+      stage: "learning_judge",
+      step: "learning_judge",
+      itemIds: ["item-p2", "item-q1"],
+      episodeId: "ep_a1",
+      model: MODEL,
+      inputTokens: 1400,
+      outputTokens: 200,
+      input: { prompt_version: "learning_judge@2", input: { episode_id: "ep_a1" } },
+      output: {
+        is_learning: true,
+        confidence: 0.92,
+        topic: "重排模型",
+        learning_goal: "理解交叉编码器与双塔模型的取舍",
+        worth_extracting: true,
+        candidate_item_ids: ["item-p2", "item-q1"],
+        reason: "主动搜索并多轮追问"
+      }
+    },
+    {
+      stage: "learning_judge",
+      step: "judge_verdict",
+      itemIds: ["item-p2", "item-q1"],
+      episodeId: "ep_a1",
+      input: { is_learning: true, confidence: 0.92, worth_extracting: true, protected_item_ids: [] },
+      output: {
+        action: "proceed",
+        episode_status: "learning",
+        candidate_item_ids: ["item-p2", "item-q1"],
+        rejected_item_ids: [],
+        forced_item_ids: [],
+        item_engagement: [{ item_id: "item-q1", engagement: "strong" }],
+        reason: "主动搜索并多轮追问"
+      }
+    },
+    {
+      stage: "retrieve",
+      step: "retrieve",
+      itemIds: ["item-p3"],
+      episodeId: "ep_b2",
+      input: { path: "full", titles: ["IntersectionObserver - Web API | MDN"] },
+      output: { candidates: [], prefilter: { route: "prefilter:low_info", decision: "reject", reject_reason: "low_information" } }
+    },
+    {
+      stage: "retrieve",
+      step: "retrieve",
+      itemIds: ["item-p2"],
+      episodeId: "ep_a1",
+      input: { path: "full", titles: ["交叉编码器和双塔模型应该怎么选？"] },
+      output: { candidates: [{ entry_id: "kb-rerank", name: "重排", similarity: 0.71, last_source_at: "2026-09-20" }], prefilter: { route: "llm" } }
+    },
+    {
+      stage: "knowledge_processing",
+      step: "knowledge_extract",
+      itemIds: ["item-p2"],
+      episodeId: "ep_a1",
+      model: MODEL,
+      inputTokens: 4100,
+      outputTokens: 900,
+      input: { prompt_version: "knowledge_extract@4", input: { step: "extract", instructions: [], feedback: null } },
+      output: {
+        fragments: [
+          {
+            concept: "交叉编码器",
+            heading: "原理",
+            markdown: "交叉编码器把 query 与文档拼接后整体编码……",
+            summarized: false,
+            source_section: "## 交叉编码器",
+            turn_item_id: "item-p2"
+          },
+          {
+            concept: "重排",
+            heading: "双塔模型可离线预计算文档向量",
+            markdown: "双塔模型把 query 与文档分别编码，文档向量可离线预计算……",
+            summarized: false,
+            source_section: "## 怎么选",
+            turn_item_id: "item-p2"
+          }
+        ],
+        removed: [{ source_section: null, reason: "boilerplate" }]
+      }
+    },
+    {
+      stage: "knowledge_processing",
+      step: "knowledge_align",
+      itemIds: ["item-p2"],
+      episodeId: "ep_a1",
+      model: MODEL,
+      inputTokens: 2600,
+      outputTokens: 420,
+      input: { prompt_version: "knowledge_align@3", input: { step: "align", feedback: null } },
+      output: {
+        assignments: [
+          { fragment_id: "f1", entry: "new:交叉编码器", covered_by: null },
+          { fragment_id: "f2", entry: "kb-rerank", covered_by: null }
+        ],
+        new_entries: [{ key: "new:交叉编码器", name: "交叉编码器", aliases: ["Cross-encoder"], kind: "概念", category: "RAG", summary: "把 query 与文档拼接整体编码的重排模型" }],
+        relations: [{ from: "交叉编码器", to: "重排", type: "part_of", description: null }]
+      }
+    },
+    {
+      stage: "knowledge_processing",
+      step: "processing_result",
+      itemIds: ["item-p2"],
+      episodeId: "ep_a1",
+      model: MODEL,
+      input: { raw: { extract_retries: 0, missing_sections: [], rewritten_fragments: [], align_retries: 0 } },
+      output: { output: { decision: "new", item_summary: "交叉编码器与双塔模型的取舍", item_points: ["交叉编码器精度高但无法预计算"] } }
+    },
+    {
+      stage: "integration",
+      step: "integration",
+      itemIds: ["item-p2"],
+      episodeId: "ep_a1",
+      input: { decision: "new", reject_reason: null },
+      output: {
+        status: "ingested",
+        entry_changes: [
+          { entryId: "kb-cross", name: "交叉编码器", change: "created" },
+          { entryId: "kb-rerank", name: "重排", change: "supplemented" }
+        ],
+        edges_created: 2
+      }
+    }
+  ];
+  return steps.map((step, index) => ({
+    model: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    entryId: null,
+    createdAt: "2026-09-30T15:00:00.000Z",
+    ...step,
+    seq: index + 1
+  }));
 }
 
 function createRuns(): OrganizeRunDetail[] {
@@ -529,6 +710,11 @@ export const mockOrganizeApi = {
     const run = runs.find((candidate) => candidate.id === id);
     if (!run) throw new Error(`API 404: run not found: ${id}`);
     return organizeRunDetailSchema.parse(run);
+  },
+
+  async getOrganizeRunTrace(id: string) {
+    if (!runs.some((candidate) => candidate.id === id)) throw new Error(`API 404: run not found: ${id}`);
+    return organizeRunTraceResponseSchema.parse({ steps: id === "run-1" ? sampleTrace() : [] });
   },
 
   async retryOrganizeRun(id: string) {

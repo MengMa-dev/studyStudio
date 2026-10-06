@@ -180,10 +180,6 @@ export function fuzzyNotesNear(db: DatabaseSync, capturedAt: string, limit = 3):
   return rows.sort((a, b) => Math.abs(Date.parse(a.created_at) - at) - Math.abs(Date.parse(b.created_at) - at)).slice(0, limit);
 }
 
-export function entryNotes(db: DatabaseSync, entryId: string): NoteRow[] {
-  return db.prepare("SELECT * FROM notes WHERE scope = 'entry' AND target_id = ? AND deleted_at IS NULL ORDER BY created_at").all(entryId) as NoteRow[];
-}
-
 export function findEntryByName(entries: EntryRecord[], name: string): EntryRecord | undefined {
   const key = normalizeEntryName(name);
   return entries.find((entry) => normalizeEntryName(entry.name) === key || entry.aliases.some((alias) => normalizeEntryName(alias) === key));

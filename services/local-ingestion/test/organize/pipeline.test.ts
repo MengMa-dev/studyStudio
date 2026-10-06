@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { appendSections, parseSections } from "@study-studio/shared";
 import { runJobs } from "../../src/domains/organize/run-store";
+import { runTrace } from "../../src/domains/organize/trace";
+import { checkExtract } from "../../src/domains/organize/verify";
 import {
+  alignment,
   createEnv,
   createReplayGateway,
   entry,
@@ -11,12 +15,14 @@ import {
   insertSelection,
   insertSource,
   itemStatus,
+  newEntry,
   output,
   recordedContent,
   recordedTurns,
   replay,
   result,
   runPipeline,
+  sectionFragments,
   setLearnerProfile,
   stepCalls,
   steps,
@@ -71,6 +77,22 @@ function seedLangGraphItems(env: TestEnv): void {
   });
 }
 
+/** Thread item_B (+ item_B2): turn 1 → Checkpoint, turn 2 → HITL; item_C: every section → HITL. */
+function langGraphSteps() {
+  const [first, second] = recordedTurns("conversation-thread");
+  const thread = [...sectionFragments(first!.answer, "Checkpoint", "item_B"), ...sectionFragments(second!.answer, "Human-in-the-loop", "item_B2")];
+  const relations = [{ from: "Checkpoint", to: "Human-in-the-loop", type: "contrasts" as const, description: "checkpoint 是持久化，interrupt 是控制流" }];
+  const docs = sectionFragments(recordedContent("supplement"), "Human-in-the-loop");
+  return [
+    ...steps("item_B", thread, alignment(["kb_checkpoint", "kb_hitl"], { relations })),
+    ...steps(
+      "item_C",
+      docs,
+      alignment(docs.map(() => "kb_hitl"))
+    )
+  ];
+}
+
 function learningJudge(candidates: string[], engagement: Record<string, "weak" | "medium" | "strong">, patch: Record<string, unknown> = {}) {
   return output("learning_judge", "learning", {
     candidate_item_ids: candidates,
@@ -79,6 +101,8 @@ function learningJudge(candidates: string[], engagement: Record<string, "weak" |
   });
 }
 
+const judgeAll = () => replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" }));
+
 function kpCalls(prompts: Array<{ input: unknown }>, itemId?: string) {
   return prompts.filter((call) => {
     const input = call.input as { item?: { item_id?: string }; timeline?: unknown };
@@ -86,66 +110,89 @@ function kpCalls(prompts: Array<{ input: unknown }>, itemId?: string) {
   });
 }
 
-test("③ learning episode → ⑤ supplement + conversation thread → ⑥ patches and sources", async (t) => {
+function rawOutput(env: TestEnv, itemId: string) {
+  return (JSON.parse(String(result(env.db, itemId)!.output)) as { raw: Record<string, unknown> }).raw;
+}
+
+test("③ learning episode → ⑤ extract + align → ⑥ appends marked sections and sources", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   setLearnerProfile(env.db);
   seedLangGraphKb(env);
   seedLangGraphItems(env);
-  const { gateway, prompts } = createReplayGateway([
-    replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" })),
-    ...steps("item_B", output("knowledge_processing", "conversation-thread")),
-    ...steps("item_C", output("knowledge_processing", "supplement"))
-  ]);
+  const { gateway, prompts } = createReplayGateway([judgeAll(), ...langGraphSteps()]);
 
   const { runId, result: run } = await runPipeline(env, gateway);
 
   assert.equal(run.status, "completed");
-  assert.equal(run.stats.items.total, 3);
   assert.equal(run.stats.items.ingested, 3);
   assert.equal(run.stats.decisions.supplement, 2);
   assert.equal(run.stats.episodes.learning, 1);
-  assert.ok(run.tokens > 0);
+  assert.equal(run.stats.kb.relationsCreated, 1);
   assert.equal(run.model, "replay");
   for (const id of ["item_B", "item_B2", "item_C"]) assert.equal(itemStatus(env.db, id).organize_status, "ingested");
 
-  const kpInputs = kpCalls(prompts);
   assert.equal(kpCalls(prompts, "item_B2").length, 0, "follow-up turn is processed with its thread");
-  const thread = kpInputs.find((call) => (call.input as { item: { item_id: string } }).item.item_id === "item_B")!.input as {
-    item: { turns: Array<{ turn_item_id: string }> };
-    related_entries: Array<{ entry_id: string }>;
-  };
+  const [extract] = stepCalls(prompts, "extract", "item_B") as Array<{ turns: Array<{ turn_item_id: string; answer: string }>; text: string | null }>;
   assert.deepEqual(
-    thread.item.turns.map((turn) => turn.turn_item_id),
+    extract!.turns.map((turn) => turn.turn_item_id),
     ["item_B", "item_B2"]
   );
-  assert.ok(thread.related_entries.some((related) => related.entry_id === "kb_checkpoint"));
+  assert.equal(extract!.text, null);
+  assert.equal(extract!.turns[0]!.answer, recordedTurns("conversation-thread")[0]!.answer, "the whole answer is sent, not a chunk");
+  assert.ok(!("episode" in extract!) && !("learner_profile" in extract!), "judge topic / profile are not passed to extract");
+  const [align] = stepCalls(prompts, "align", "item_B") as Array<{ candidate_entries: Array<{ entry_id: string; sections: Array<{ section_id: string }> }> }>;
+  assert.ok(align!.candidate_entries.some((candidate) => candidate.entry_id === "kb_checkpoint"));
+  assert.deepEqual(
+    align!.candidate_entries.find((candidate) => candidate.entry_id === "kb_checkpoint")!.sections.map((section) => section.section_id),
+    ["u_0", "u_1"],
+    "unmarked sections get temporary ids"
+  );
 
   const hitl = entry(env.db, "kb_hitl")!;
-  assert.ok(Number(hitl.patch_count) >= 1);
-  assert.notEqual(hitl.body_markdown, HITL_BODY);
-  const sources = env.db.prepare("SELECT entry_id, item_id FROM kb_entry_sources ORDER BY entry_id, item_id").all() as Array<{
-    entry_id: string;
-    item_id: string;
-  }>;
-  assert.ok(sources.some((row) => row.entry_id === "kb_hitl" && row.item_id === "item_C"));
-  assert.ok(sources.some((row) => row.entry_id === "kb_checkpoint" && row.item_id === "item_B"));
+  const sections = parseSections(String(hitl.body_markdown));
+  assert.deepEqual(sections.slice(0, 3), parseSections(HITL_BODY), "existing sections are kept, new ones are appended");
+  assert.deepEqual(
+    sections.filter((section) => section.id).map((section) => [section.heading, section.sourceItemIds]),
+    [
+      ["Human-in-the-loop", ["item_B2"]],
+      ["Overview", ["item_C"]],
+      ["interrupt", ["item_C"]],
+      ["Requirements", ["item_C"]],
+      ["Design patterns", ["item_C"]],
+      ["Caveats", ["item_C"]]
+    ]
+  );
+  assert.ok(sections.some((section) => section.markdown.includes("Command(resume=value)")), "fragment text is written verbatim");
+  assert.equal(Number(hitl.patch_count), 2);
+  const source = env.db.prepare("SELECT evidence FROM kb_entry_sources WHERE entry_id = 'kb_hitl' AND item_id = 'item_C'").get() as { evidence: string };
+  const evidence = JSON.parse(source.evidence) as Array<{ section_id: string; heading: string; quote: string }>;
+  assert.equal(evidence.length, 5);
+  assert.ok(evidence.every((row) => row.section_id.startsWith("s_") && row.quote === row.heading));
+  const qa = env.db.prepare("SELECT evidence FROM kb_entry_sources WHERE entry_id = 'kb_checkpoint' AND item_id = 'item_B'").get() as { evidence: string };
+  const qaEvidence = JSON.parse(qa.evidence) as Array<{ question?: string; turnItemId?: string }>;
+  assert.ok(qaEvidence.length > 0);
+  assert.ok(qaEvidence.every((row) => row.question === recordedTurns("conversation-thread")[0]!.question && row.turnItemId === "item_B"));
 
   const stored = result(env.db, "item_C")!;
   assert.equal(stored.decision, "supplement");
   assert.equal(stored.run_id, runId);
+  assert.equal(stored.prompt_version, "organize@4(knowledge_extract@4+knowledge_align@3)");
   assert.ok(String(stored.target_entry_ids).includes("kb_hitl"));
-  const episode = env.db.prepare("SELECT status, prompt_version, judge_output FROM episodes").get() as {
-    status: string;
-    prompt_version: string;
-    judge_output: string;
-  };
-  assert.equal(episode.status, "learning");
-  assert.ok(episode.judge_output.includes("LangGraph"));
   assert.ok(runJobs(env.db, runId).every((job) => job.status === "ingested"));
+
+  const trace = runTrace(env.db, runId);
+  const stepNames = new Set(trace.map((step) => step.step));
+  for (const name of ["context", "episodes", "learning_judge", "judge_verdict", "retrieve", "knowledge_extract", "knowledge_align", "processing_result", "integration"]) {
+    assert.ok(stepNames.has(name), `trace has ${name}`);
+  }
+  assert.deepEqual(
+    trace.map((step) => step.seq),
+    trace.map((_, index) => index + 1)
+  );
 });
 
-test("③ non-learning episode rejects items; a noted item is still forced into ⑤", async (t) => {
+test("③ non-learning episode rejects items; a noted item is forced into ⑤ and no fragments → reject", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   insertItem(env.db, { id: "item_news", title: "今日热点新闻", capturedAt: T(0), markdown: recordedContent("reject-low-information") });
@@ -157,58 +204,33 @@ test("③ non-learning episode rejects items; a noted item is still forced into 
     markdown: recordedContent("reject-transient")
   });
   insertNote(env.db, { id: "note_vite", scope: "item", targetId: "item_vite_port", text: "以后端口冲突就这么处理", createdAt: T(6) });
+  const removed = [
+    { source_section: "## Question", reason: "boilerplate" as const },
+    { source_section: "## Accepted answer", reason: "boilerplate" as const }
+  ];
   const { gateway, prompts } = createReplayGateway([
     replay.judge(output("learning_judge", "non-learning")),
-    ...steps("item_vite_port", output("knowledge_processing", "reject-transient"))
+    replay.extract("item_vite_port", { fragments: [], removed })
   ]);
 
   const { result: run } = await runPipeline(env, gateway);
 
   assert.equal(result(env.db, "item_news")!.decision, "not_learning");
-  assert.equal(itemStatus(env.db, "item_news").organize_status, "rejected");
   assert.equal(kpCalls(prompts, "item_news").length, 0);
-  const forced = kpCalls(prompts, "item_vite_port")[0]!.input as { item: { user_note: string | null; engagement: string } };
-  assert.equal(forced.item.user_note, "以后端口冲突就这么处理");
-  assert.equal(forced.item.engagement, "strong");
-  assert.equal(result(env.db, "item_vite_port")!.reject_reason, "transient");
-  assert.equal(stepCalls(prompts, "extract").length, 0, "S1 reject stops before extraction");
+  const extracts = stepCalls(prompts, "extract", "item_vite_port") as Array<{ instructions: Array<{ kind: string; text: string }> }>;
+  assert.equal(extracts.length, 1);
+  assert.deepEqual(extracts[0]!.instructions, [{ kind: "item_note", text: "以后端口冲突就这么处理" }]);
+  assert.equal(stepCalls(prompts, "align").length, 0, "no fragments stops before align");
+  const stored = result(env.db, "item_vite_port")!;
+  assert.equal(stored.decision, "reject");
+  assert.equal(stored.reject_reason, "low_information");
   assert.equal(run.stats.decisions.notLearning, 1);
   assert.equal(run.stats.decisions.reject, 1);
   const note = env.db.prepare("SELECT used_at FROM notes WHERE id = 'note_vite'").get() as { used_at: string | null };
   assert.ok(note.used_at, "notes fed to ⑤ are marked used");
 });
 
-test("③ uncertain band raises τ: weak engagement + 0.78 is rejected by the code fallback", async (t) => {
-  const env = createEnv();
-  t.after(() => env.app.close());
-  insertItem(env.db, {
-    id: "item_mcp_intro",
-    title: "Introduction - Model Context Protocol",
-    url: "https://modelcontextprotocol.io/introduction",
-    capturedAt: T(0),
-    markdown: recordedContent("new")
-  });
-  const { gateway, prompts } = createReplayGateway([
-    replay.judge(learningJudge(["item_mcp_intro"], { item_mcp_intro: "weak" }, { confidence: 0.5 })),
-    ...steps("item_mcp_intro", output("knowledge_processing", "new"))
-  ]);
-
-  await runPipeline(env, gateway);
-
-  const input = kpCalls(prompts, "item_mcp_intro")[0]!.input as { episode: { uncertain: boolean } };
-  assert.equal(input.episode.uncertain, true);
-  const stored = result(env.db, "item_mcp_intro")!;
-  assert.equal(stored.decision, "reject");
-  assert.equal(stored.reject_reason, "low_information");
-  const detail = JSON.parse(String(stored.output)) as { raw: { triage: { decision: string } }; fallback: { overridden: boolean; tau: number } };
-  assert.equal(detail.raw.triage.decision, "proceed", "raw model output is kept for calibration");
-  assert.equal(detail.fallback.overridden, true);
-  assert.equal(detail.fallback.tau, 0.8);
-  assert.equal(stepCalls(prompts, "extract").length, 0, "τ fallback stops before extraction");
-  assert.equal((env.db.prepare("SELECT COUNT(*) AS n FROM kb_entries").get() as { n: number }).n, 0);
-});
-
-test("③ high confidence + medium engagement: ⑤ new creates an entry, summary vectors are indexed", async (t) => {
+test("⑤ new: a new entry is built from fragment sections, relations resolve, vectors are indexed", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   insertEntry(env.db, { id: "kb_function_calling", name: "Function Calling", aliases: ["工具调用"], body: "## 定义\n让模型输出结构化的函数调用。" });
@@ -219,56 +241,103 @@ test("③ high confidence + medium engagement: ⑤ new creates an entry, summary
     capturedAt: T(0),
     markdown: recordedContent("new")
   });
+  const fragments = sectionFragments(recordedContent("new"), "Model Context Protocol");
   const { gateway } = createReplayGateway([
     replay.judge(learningJudge(["item_mcp_intro"], { item_mcp_intro: "medium" }, { related_exploration: ["Function Calling"] })),
-    ...steps("item_mcp_intro", output("knowledge_processing", "new"))
+    ...steps(
+      "item_mcp_intro",
+      fragments,
+      alignment(
+        fragments.map(() => "new:Model Context Protocol"),
+        {
+          new_entries: [newEntry("Model Context Protocol", { aliases: ["MCP"], kind: "规范" })],
+          relations: [{ from: "Model Context Protocol", to: "Function Calling", type: "related", description: null }]
+        }
+      )
+    )
   ]);
 
   const { result: run } = await runPipeline(env, gateway);
 
   assert.equal(run.stats.kb.entriesCreated, 1);
-  const created = env.db.prepare("SELECT id, name, kind FROM kb_entries WHERE name = 'Model Context Protocol'").get() as {
+  assert.equal(run.stats.decisions.new, 1);
+  const created = env.db.prepare("SELECT id, kind, aliases, body_markdown, patch_count FROM kb_entries WHERE name = 'Model Context Protocol'").get() as {
     id: string;
-    name: string;
     kind: string;
+    aliases: string;
+    body_markdown: string;
+    patch_count: number;
   };
-  assert.ok(created);
+  assert.equal(created.kind, "规范");
+  assert.deepEqual(JSON.parse(created.aliases), ["MCP"]);
+  assert.equal(created.patch_count, 0);
+  assert.deepEqual(
+    parseSections(created.body_markdown).map((section) => [section.heading, section.sourceItemIds]),
+    ["What is MCP?", "Why MCP?", "General architecture", "Get started"].map((heading) => [heading, ["item_mcp_intro"]])
+  );
+  assert.ok(env.db.prepare("SELECT 1 FROM kb_edges WHERE src = ? AND dst = 'kb_function_calling' AND type = 'related'").get(created.id));
   const owners = env.db.prepare("SELECT DISTINCT owner_type FROM chunks WHERE owner_id = ?").all(created.id) as Array<{ owner_type: string }>;
   assert.deepEqual(owners.map((row) => row.owner_type).sort(), ["entry", "entry_name", "entry_summary"]);
-  assert.ok(env.searchIndex.vectorStore.size() > 0);
 });
 
-test("⑤ duplicate adds a source without touching the body; a highlighted item is re-checked point by point", async (t) => {
+test("⑤ duplicate: a second source covering existing sections only attaches the source", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
-  const body = "## 定义\n先粗召回再用 cross-encoder 重排。";
-  insertEntry(env.db, { id: "kb_rerank", name: "RAG 重排", aliases: ["Rerank", "重排序"], kind: "method", body });
+  const content = recordedContent("duplicate");
+  const original = sectionFragments(content, "RAG 重排");
+  const seeded = appendSections(
+    "",
+    original.map((fragment) => ({ heading: fragment.heading, markdown: fragment.markdown, sourceItemIds: ["item_first"] }))
+  );
+  insertEntry(env.db, { id: "kb_rerank", name: "RAG 重排", aliases: ["Rerank", "重排序"], kind: "method", body: seeded.body, patchCount: 1 });
+  insertItem(env.db, { id: "item_first", title: "第一篇", capturedAt: T(-100), markdown: content, status: "ingested" });
   insertItem(env.db, {
     id: "item_rerank_blog",
     title: "RAG 优化：为什么要加一层 Rerank",
     url: "https://example-blog.dev/rag-rerank",
     capturedAt: T(0),
-    markdown: recordedContent("duplicate")
+    markdown: content
   });
   insertSelection(env.db, "item_rerank_blog", "再用 cross-encoder 重排模型对「问题-片段」逐对打分", T(-1));
   const { gateway, prompts } = createReplayGateway([
     replay.judge(learningJudge(["item_rerank_blog"], { item_rerank_blog: "weak" }, { related_exploration: ["Rerank"] })),
-    ...steps("item_rerank_blog", output("knowledge_processing", "duplicate"))
+    ...steps(
+      "item_rerank_blog",
+      original,
+      alignment(seeded.ids.map((id) => ["kb_rerank", id] as [string, string]))
+    )
   ]);
 
-  await runPipeline(env, gateway);
+  const { result: run } = await runPipeline(env, gateway);
 
-  assert.equal(stepCalls(prompts, "compose", "item_rerank_blog").length, 1, "S1 duplicate on a highlighted item still runs compose");
+  const [extract] = stepCalls(prompts, "extract", "item_rerank_blog") as Array<{ user_highlights: string[] }>;
+  assert.deepEqual(extract!.user_highlights, ["再用 cross-encoder 重排模型对「问题-片段」逐对打分"]);
+  const [align] = stepCalls(prompts, "align", "item_rerank_blog") as Array<{ candidate_entries: Array<{ entry_id: string; sections: Array<{ section_id: string }> }> }>;
+  assert.deepEqual(
+    align!.candidate_entries.find((candidate) => candidate.entry_id === "kb_rerank")!.sections.map((section) => section.section_id),
+    seeded.ids
+  );
   assert.equal(result(env.db, "item_rerank_blog")!.decision, "duplicate");
+  assert.equal(run.stats.decisions.duplicate, 1);
   assert.equal(itemStatus(env.db, "item_rerank_blog").organize_status, "ingested");
-  assert.equal(entry(env.db, "kb_rerank")!.body_markdown, body);
+  const stored = entry(env.db, "kb_rerank")!;
+  assert.equal(stored.patch_count, 1, "no text appended");
+  const sections = parseSections(String(stored.body_markdown));
+  assert.deepEqual(
+    sections.map((section) => section.markdown),
+    original.map((fragment) => fragment.markdown)
+  );
+  assert.ok(sections.every((section) => section.sourceItemIds.join(",") === "item_first,item_rerank_blog"));
   const source = env.db.prepare("SELECT evidence FROM kb_entry_sources WHERE entry_id = 'kb_rerank' AND item_id = 'item_rerank_blog'").get() as {
     evidence: string;
   };
-  assert.ok(source.evidence.includes("cross-encoder"));
+  assert.deepEqual(
+    (JSON.parse(source.evidence) as Array<{ section_id: string }>).map((row) => row.section_id),
+    seeded.ids
+  );
 });
 
-test("adopt mode: rejected item selected manually skips judge and τ, legacy pattern kind maps to 设计模式", async (t) => {
+test("adopt mode: rejected item selected manually skips judge, legacy pattern kind maps to 技巧", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   insertEntry(env.db, { id: "kb_agent_loop", name: "Agent Loop", aliases: ["智能体循环"], kind: "method", body: "## 定义\n循环调用工具。" });
@@ -280,8 +349,16 @@ test("adopt mode: rejected item selected manually skips judge and τ, legacy pat
     markdown: recordedContent("adopt"),
     status: "rejected"
   });
+  const fragments = sectionFragments(recordedContent("adopt"), "ReAct");
   const { gateway, prompts } = createReplayGateway([
-    ...steps("item_react_post", output("knowledge_processing", "adopt", { value_score: 0.1 }))
+    ...steps(
+      "item_react_post",
+      fragments,
+      alignment(["new:ReAct"], {
+        new_entries: [newEntry("ReAct", { kind: "pattern" })],
+        relations: [{ from: "ReAct", to: "Agent Loop", type: "part_of", description: null }]
+      })
+    )
   ]);
 
   const { result: run } = await runPipeline(env, gateway, { scope: "inbox_selected", itemIds: ["item_react_post"] });
@@ -292,188 +369,318 @@ test("adopt mode: rejected item selected manually skips judge and τ, legacy pat
   assert.equal(stored.override, "adopt");
   assert.equal(stored.route, "llm");
   const created = env.db.prepare("SELECT kind FROM kb_entries WHERE name = 'ReAct'").get() as { kind: string };
-  assert.equal(created.kind, "设计模式");
+  assert.equal(created.kind, "技巧");
   assert.equal(run.stats.decisions.new, 1);
 });
 
-test("long text: S1 sees an excerpt + outline, every section reaches S2 across chunks", async (t) => {
+test("adopt mode: extract without fragments fails the unit instead of rejecting", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
-  seedLangGraphKb(env);
-  const filler = (title: string) => `## ${title}\n${"LangGraph persistence keeps graph state between steps so runs can resume. ".repeat(450)}`;
-  const content = [recordedContent("supplement"), filler("Appendix A"), filler("Appendix B"), filler("Appendix C")].join("\n\n");
-  insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: content });
-  const { gateway, prompts } = createReplayGateway([replay.judge(learningJudge(["item_C"], { item_C: "strong" })), ...steps("item_C", output("knowledge_processing", "supplement"))]);
+  insertItem(env.db, { id: "item_react_post", title: "一句话理解 ReAct", capturedAt: T(0), markdown: recordedContent("adopt"), status: "rejected" });
+  const removed = [{ source_section: "## 正文", reason: "boilerplate" as const }];
+  const { gateway } = createReplayGateway([replay.extract("item_react_post", { fragments: [], removed })]);
 
-  await runPipeline(env, gateway);
+  const { result: run } = await runPipeline(env, gateway, { scope: "inbox_selected", itemIds: ["item_react_post"] });
 
-  const [triage] = stepCalls(prompts, "triage", "item_C") as Array<{ item: { excerpt: string; outline: string[] } }>;
-  assert.ok(triage!.item.excerpt.length < content.length / 2, "triage sees an excerpt");
-  assert.ok(triage!.item.outline.includes("## Appendix C"), "triage sees the full outline");
-  const extracts = stepCalls(prompts, "extract", "item_C") as Array<{ chunk: { index: number; total: number; text: string } }>;
-  assert.ok(extracts.length >= 2, `expected several chunks, got ${extracts.length}`);
-  assert.equal(extracts[0]!.chunk.total, extracts.length);
-  for (const title of ["Appendix A", "Appendix B", "Appendix C"]) assert.ok(extracts.some((call) => call.chunk.text.includes(`## ${title}`)), `${title} reaches S2`);
-  const stored = result(env.db, "item_C")!;
-  assert.equal(stored.route, "llm");
-  assert.equal(stored.decision, "supplement");
+  assert.equal(itemStatus(env.db, "item_react_post").organize_status, "failed");
+  assert.equal(run.stats.items.failed, 1);
+  assert.equal(result(env.db, "item_react_post"), undefined);
 });
 
-test("S5: compose missing a core point is retried with feedback and the better result is kept", async (t) => {
+const LONG_ANSWER = [
+  "好问题！下面分几部分说明。",
+  "## 1. LLM Wiki 到底是什么？",
+  "LLM Wiki 是由大模型持续维护的个人知识库：每次读到新资料，Agent 把其中的知识整理进对应的 wiki 页面，而不是每次提问时临时检索原始文档。",
+  "## 2. 如何搭建",
+  "先准备一个 Markdown 仓库作为 wiki 根目录，再写一份 Schema 文件约定页面结构，最后让 Agent 按 ingest / query / lint 三个流程工作。",
+  "```bash\nmkdir wiki && cd wiki && git init\n```",
+  "## 3. 三个 Agent",
+  "Ingest Agent 负责把新资料写进页面；Query Agent 负责基于 wiki 回答问题并回填；Lint Agent 定期检查矛盾、过期与孤立页面，保持 wiki 健康。",
+  "## 4. MVP 顺序",
+  "第一周只做 ingest 与手动 query；第二周加入 lint；第三周再考虑自动化触发与多来源合并，不要一开始就追求全自动。"
+].join("\n");
+
+test("long QA: every answer section becomes a fragment; a missing section triggers one feedback retry", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
-  seedLangGraphKb(env);
-  insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: recordedContent("supplement") });
-  const [triage, extract, , compose] = steps("item_C", output("knowledge_processing", "supplement"));
-  const full = compose!.output as { concepts: Array<{ point_ids: string[] }> };
-  const partial = structuredClone(full);
-  partial.concepts[0]!.point_ids = partial.concepts[0]!.point_ids.slice(0, 1);
+  insertItem(env.db, {
+    id: "item_wiki",
+    type: "conversation",
+    title: "llmwiki 是什么？如何搭建",
+    capturedAt: T(0),
+    question: "llmwiki 是什么？如何搭建",
+    markdown: LONG_ANSWER,
+    conversationId: "conv_wiki"
+  });
+  const fragments = sectionFragments(LONG_ANSWER, "LLM Wiki", "item_wiki").filter((fragment) => fragment.source_section);
   const { gateway, prompts } = createReplayGateway([
-    replay.judge(learningJudge(["item_C"], { item_C: "strong" })),
-    triage!,
-    extract!,
-    replay.extract("item_C", { points: [] }),
-    replay.compose("item_C", full, (input) => Boolean(input.feedback?.length)),
-    replay.compose("item_C", partial)
+    replay.judge(learningJudge(["item_wiki"], { item_wiki: "strong" })),
+    replay.extract("item_wiki", { fragments, removed: [{ source_section: null, reason: "boilerplate" }] }, (input) => Boolean(input.feedback?.length)),
+    replay.extract("item_wiki", { fragments: fragments.slice(0, 1), removed: [{ source_section: null, reason: "boilerplate" }] }),
+    replay.align(
+      "item_wiki",
+      alignment(
+        fragments.map(() => "new:LLM Wiki"),
+        { new_entries: [newEntry("LLM Wiki", { category: "知识管理" })] }
+      )
+    )
   ]);
 
   await runPipeline(env, gateway);
 
-  const calls = stepCalls(prompts, "compose", "item_C");
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0]!.feedback, null);
-  assert.match(calls[1]!.feedback![0]!, /p2/);
-  const detail = JSON.parse(String(result(env.db, "item_C")!.output)) as { raw: { compose_retries: number; missing_after_retry: string[] } };
-  assert.equal(detail.raw.compose_retries, 1);
-  assert.deepEqual(detail.raw.missing_after_retry, []);
-  const source = env.db.prepare("SELECT evidence FROM kb_entry_sources WHERE entry_id = 'kb_hitl' AND item_id = 'item_C'").get() as { evidence: string };
-  const evidence = JSON.parse(source.evidence) as Array<{ point?: string; importance?: string }>;
-  assert.equal(evidence.length, full.concepts[0]!.point_ids.length);
-  assert.ok(evidence.every((item) => item.point && item.importance === "core"), "points are persisted with the evidence");
-});
-
-test("S1 duplicate without user marks stops before extraction", async (t) => {
-  const env = createEnv();
-  t.after(() => env.app.close());
-  insertEntry(env.db, { id: "kb_rerank", name: "RAG 重排", aliases: ["Rerank"], body: "## 定义\n先粗召回再用 cross-encoder 重排。" });
-  insertItem(env.db, { id: "item_rerank_blog", title: "RAG 优化：为什么要加一层 Rerank", capturedAt: T(0), markdown: recordedContent("supplement") });
-  const { gateway, prompts } = createReplayGateway([
-    replay.judge(learningJudge(["item_rerank_blog"], { item_rerank_blog: "medium" }, { related_exploration: ["Rerank"] })),
-    ...steps("item_rerank_blog", output("knowledge_processing", "duplicate"))
-  ]);
-
-  await runPipeline(env, gateway);
-
-  assert.equal(result(env.db, "item_rerank_blog")!.decision, "duplicate");
-  assert.equal(stepCalls(prompts, "extract").length, 0);
-  assert.equal(stepCalls(prompts, "compose").length, 0);
-});
-
-test("user_edited entry: supplement goes to 整理建议 and the summary is kept", async (t) => {
-  const env = createEnv();
-  t.after(() => env.app.close());
-  seedLangGraphKb(env, { hitlUserEdited: true });
-  insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: recordedContent("supplement") });
-  insertSelection(env.db, "item_C", "The interrupt() function pauses graph execution at a specific node", T(-1));
-  const { gateway, prompts } = createReplayGateway([
-    replay.judge(learningJudge(["item_C"], { item_C: "strong" })),
-    ...steps("item_C", output("knowledge_processing", "supplement"))
-  ]);
-
-  await runPipeline(env, gateway);
-
-  const input = kpCalls(prompts, "item_C")[0]!.input as { item: { user_highlights: string[] } };
-  assert.deepEqual(input.item.user_highlights, ["The interrupt() function pauses graph execution at a specific node"]);
-  const hitl = entry(env.db, "kb_hitl")!;
-  assert.ok(String(hitl.body_markdown).startsWith(HITL_BODY), "user text is untouched");
-  assert.ok(String(hitl.body_markdown).includes("## 整理建议"));
-  assert.equal(hitl.summary, "人工审批节点");
-});
-
-test("⑦ stale entry is rewritten from live evidence; missing evidence makes it an orphan", async (t) => {
-  const env = createEnv();
-  t.after(() => env.app.close());
-  seedLangGraphKb(env);
-  insertEntry(env.db, { id: "kb_lonely", name: "Lonely", body: "## 定义\n只有一个来源。" });
-  insertItem(env.db, { id: "item_A", title: "Persistence - LangGraph Docs", capturedAt: T(0), markdown: "persistence", status: "ingested" });
-  insertItem(env.db, { id: "item_B", type: "conversation", title: "checkpoint 和 interrupt", capturedAt: T(1), markdown: "answer", status: "ingested" });
-  insertSource(env.db, "kb_checkpoint", "item_A", ["LangGraph has a built-in persistence layer"]);
-  insertSource(env.db, "kb_checkpoint", "item_B", ["interrupt 依赖 checkpoint"]);
-  insertSource(env.db, "kb_lonely", "item_A", ["only source"]);
-  env.db.prepare("UPDATE items SET deleted_at = ? WHERE id = 'item_A'").run("2026-10-02T10:00:00.000Z");
-  const { gateway, prompts } = createReplayGateway([replay.rewrite("kb_checkpoint", output("entry_rewrite", "stale"))]);
-
-  const { runId, result: run } = await runPipeline(env, gateway);
-
-  const rewriteInput = prompts.find((call) => (call.input as { entry?: { entry_id: string } }).entry?.entry_id === "kb_checkpoint")!.input as {
-    trigger: string;
-    evidence: Array<{ item_id: string }>;
-  };
-  assert.equal(rewriteInput.trigger, "stale");
-  assert.deepEqual([...new Set(rewriteInput.evidence.map((evidence) => evidence.item_id))], ["item_B"]);
-  const checkpoint = entry(env.db, "kb_checkpoint")!;
-  assert.equal(checkpoint.stale, 0);
-  assert.equal(checkpoint.patch_count, 0);
-  assert.ok(String(checkpoint.body_markdown).includes("MemorySaver"));
-  const lonely = entry(env.db, "kb_lonely")!;
-  assert.equal(lonely.orphan, 1);
-  assert.equal(lonely.stale, 0);
-  assert.equal(run.stats.kb.entriesRewritten, 1);
-  assert.ok(runJobs(env.db, runId).some((job) => job.kind === "entry_rewrite" && job.status === "rewritten"));
-});
-
-test("⑦ rewrite evidence is ranked by importance; uncovered core points trigger one feedback retry", async (t) => {
-  const env = createEnv();
-  t.after(() => env.app.close());
-  seedLangGraphKb(env);
-  insertItem(env.db, { id: "item_B", type: "conversation", title: "checkpoint 和 interrupt", capturedAt: T(1), markdown: "answer", status: "ingested" });
-  insertSource(env.db, "kb_checkpoint", "item_B", []);
-  env.db.prepare("UPDATE kb_entry_sources SET evidence = ? WHERE entry_id = 'kb_checkpoint' AND item_id = 'item_B'").run(
-    JSON.stringify([
-      { quote: "thread_id 区分会话", importance: "detail" },
-      { quote: "interrupt 依赖 checkpoint", point: "interrupt 需要 checkpointer 才能恢复", importance: "core" },
-      { quote: "legacy quote" }
-    ])
-  );
-  const stale = output("entry_rewrite", "stale");
-  const { gateway, prompts } = createReplayGateway([
-    replay.rewrite("kb_checkpoint", { ...stale, covered_ids: ["e2"], dropped: [] }, (input) => !input.feedback),
-    replay.rewrite("kb_checkpoint", { ...stale, covered_ids: ["e1", "e2"], dropped: [] })
-  ]);
-
-  await runPipeline(env, gateway, { scope: "entry", entryIds: ["kb_checkpoint"] });
-
-  const calls = prompts.filter((call) => (call.input as { entry?: { entry_id: string } }).entry?.entry_id === "kb_checkpoint");
-  assert.equal(calls.length, 2);
-  const first = calls[0]!.input as { evidence: Array<{ id: string; importance: string; point: string | null }> };
+  const extracts = stepCalls(prompts, "extract", "item_wiki") as Array<{ turns: Array<{ answer: string }>; feedback: string[] | null }>;
+  assert.equal(extracts.length, 2);
+  assert.equal(extracts[0]!.turns[0]!.answer, LONG_ANSWER);
+  assert.equal(extracts[0]!.feedback, null);
+  const feedback = extracts[1]!.feedback!.join("\n");
+  for (const heading of ["如何搭建", "三个 Agent", "MVP 顺序"]) assert.ok(feedback.includes(heading), `feedback names ${heading}`);
+  const [align] = stepCalls(prompts, "align", "item_wiki") as Array<{ fragments: Array<{ fragment_id: string }> }>;
+  assert.equal(align!.fragments.length, 4);
+  const created = env.db.prepare("SELECT body_markdown FROM kb_entries WHERE name = 'LLM Wiki'").get() as { body_markdown: string };
   assert.deepEqual(
-    first.evidence.map((item) => [item.id, item.importance, item.point]),
+    parseSections(created.body_markdown).map((section) => section.heading),
+    ["1. LLM Wiki 到底是什么？", "2. 如何搭建", "3. 三个 Agent", "4. MVP 顺序"]
+  );
+  assert.ok(created.body_markdown.includes("```bash\nmkdir wiki && cd wiki && git init\n```"), "code block kept");
+  const raw = rawOutput(env, "item_wiki");
+  assert.equal(raw.extract_retries, 1);
+  assert.deepEqual(raw.missing_sections, []);
+});
+
+test("V1: a rewritten (non-verbatim) fragment is retried with feedback and the verbatim result is kept", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  const content = recordedContent("new");
+  insertItem(env.db, { id: "item_mcp_intro", title: "Introduction - Model Context Protocol", capturedAt: T(0), markdown: content });
+  const verbatim = sectionFragments(content, "Model Context Protocol");
+  const rewritten = structuredClone(verbatim);
+  rewritten[0]!.markdown = "MCP 是一个开放协议，用来统一应用向大模型提供上下文的方式，类似 AI 应用的 USB-C 接口。";
+  const align = alignment(
+    verbatim.map(() => "new:Model Context Protocol"),
+    { new_entries: [newEntry("Model Context Protocol")] }
+  );
+  const { gateway, prompts } = createReplayGateway([
+    replay.judge(learningJudge(["item_mcp_intro"], { item_mcp_intro: "strong" })),
+    replay.extract("item_mcp_intro", { fragments: verbatim, removed: [] }, (input) => Boolean(input.feedback?.length)),
+    replay.extract("item_mcp_intro", { fragments: rewritten, removed: [] }),
+    replay.align("item_mcp_intro", align)
+  ]);
+
+  await runPipeline(env, gateway);
+
+  const extracts = stepCalls(prompts, "extract", "item_mcp_intro");
+  assert.equal(extracts.length, 2);
+  assert.match(extracts[1]!.feedback![0]!, /What is MCP\?.*疑似改写/);
+  const created = env.db.prepare("SELECT body_markdown FROM kb_entries WHERE name = 'Model Context Protocol'").get() as { body_markdown: string };
+  assert.ok(created.body_markdown.includes("Think of MCP like a USB-C port"));
+  assert.ok(!created.body_markdown.includes("开放协议"));
+  const raw = rawOutput(env, "item_mcp_intro");
+  assert.equal(raw.extract_retries, 1);
+  assert.deepEqual(raw.rewritten_fragments, []);
+});
+
+const NOTE_ARTICLE = [
+  "## 是什么",
+  "LLM Wiki 让 Agent 把读到的资料持续整理进 wiki 页面，知识随时间累积，而不是每次提问都从原始文档里临时检索拼凑答案。",
+  "## Obsidian 配置",
+  "在 Obsidian 中打开 wiki 目录作为 vault，安装 Dataview 插件并开启 JavaScript 查询，就可以按标签浏览所有页面与反向链接。",
+  "## 维护流程",
+  "每次 ingest 之后运行一次 lint：检查页面之间的矛盾、标记过期结论、为孤立页面补充链接，保证整个 wiki 结构一致。"
+].join("\n");
+
+test("instructions: item note「剔除 X」lands in removed; fuzzy note and requirement are labeled; entry notes never reach ⑤", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  insertEntry(env.db, { id: "kb_wiki", name: "LLM Wiki", body: "## 定义\n由 LLM 维护的 wiki。" });
+  insertItem(env.db, { id: "item_wiki", title: "LLM Wiki 实践", capturedAt: T(0), markdown: NOTE_ARTICLE });
+  insertNote(env.db, { id: "note_item", scope: "item", targetId: "item_wiki", text: "剔除 Obsidian 部分", createdAt: T(1) });
+  insertNote(env.db, { id: "note_fuzzy", scope: "fuzzy", text: "维护流程只留摘要", createdAt: T(2) });
+  insertNote(env.db, { id: "note_entry", scope: "entry", targetId: "kb_wiki", text: "词条备注不参与整理", createdAt: T(3) });
+  const fragments = sectionFragments(NOTE_ARTICLE, "LLM Wiki").filter((fragment) => fragment.heading !== "Obsidian 配置");
+  const removed = [{ source_section: "## Obsidian 配置", reason: "instruction" as const }];
+  const { gateway, prompts } = createReplayGateway([
+    replay.judge(learningJudge(["item_wiki"], { item_wiki: "strong" })),
+    ...steps("item_wiki", fragments, alignment(["kb_wiki", "kb_wiki"]), removed)
+  ]);
+
+  await runPipeline(env, gateway, { requirement: "多写对比" });
+
+  const extracts = stepCalls(prompts, "extract", "item_wiki") as Array<{ instructions: Array<{ kind: string; text: string }> }>;
+  assert.equal(extracts.length, 1, "removed sections count as handled");
+  assert.deepEqual(extracts[0]!.instructions, [
+    { kind: "item_note", text: "剔除 Obsidian 部分" },
+    { kind: "fuzzy_note", text: "维护流程只留摘要" },
+    { kind: "requirement", text: "多写对比" }
+  ]);
+  assert.ok(!JSON.stringify(kpCalls(prompts)).includes("词条备注不参与整理"));
+  const body = String(entry(env.db, "kb_wiki")!.body_markdown);
+  assert.ok(!body.includes("Obsidian"));
+  assert.ok(body.includes("## 维护流程"));
+  const raw = rawOutput(env, "item_wiki") as { extract: { removed: unknown[] }; missing_sections: string[] };
+  assert.deepEqual(raw.extract.removed, removed);
+  assert.deepEqual(raw.missing_sections, []);
+  const notes = env.db.prepare("SELECT id, used_at FROM notes ORDER BY id").all() as Array<{ id: string; used_at: string | null }>;
+  assert.deepEqual(
+    notes.map((note) => [note.id, Boolean(note.used_at)]),
     [
-      ["e1", "core", "interrupt 需要 checkpointer 才能恢复"],
-      ["e2", "supporting", null],
-      ["e3", "detail", null]
+      ["note_entry", false],
+      ["note_fuzzy", true],
+      ["note_item", true]
     ]
   );
-  assert.match(String((calls[1]!.input as { feedback: string[] }).feedback), /e1/);
-  assert.ok(String(entry(env.db, "kb_checkpoint")!.body_markdown).includes("MemorySaver"));
 });
 
-test("⑦ manual rewrite of a user_edited entry appends 重写建议 instead of overwriting", async (t) => {
+test("V1: summarized=true without any instruction is a rewrite and gets one feedback retry", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  const content = recordedContent("new");
+  insertItem(env.db, { id: "item_mcp_intro", title: "Introduction - Model Context Protocol", capturedAt: T(0), markdown: content });
+  const verbatim = sectionFragments(content, "Model Context Protocol");
+  const summarized = structuredClone(verbatim);
+  summarized[0] = { ...summarized[0]!, markdown: "MCP 是统一应用向大模型提供上下文的开放协议。", summarized: true };
+  assert.deepEqual(checkExtract({ fragments: summarized, removed: [] }, [{ turnItemId: null, text: content }], true).problems, [], "allowed with instructions");
+  const { gateway, prompts } = createReplayGateway([
+    replay.judge(learningJudge(["item_mcp_intro"], { item_mcp_intro: "strong" })),
+    replay.extract("item_mcp_intro", { fragments: verbatim, removed: [] }, (input) => Boolean(input.feedback?.length)),
+    replay.extract("item_mcp_intro", { fragments: summarized, removed: [] }),
+    replay.align("item_mcp_intro", alignment(verbatim.map(() => "new:Model Context Protocol"), { new_entries: [newEntry("Model Context Protocol")] }))
+  ]);
+
+  await runPipeline(env, gateway);
+
+  const extracts = stepCalls(prompts, "extract", "item_mcp_intro");
+  assert.equal(extracts.length, 2);
+  assert.match(extracts[1]!.feedback![0]!, /What is MCP\?.*summarized=true/);
+  const created = env.db.prepare("SELECT body_markdown FROM kb_entries WHERE name = 'Model Context Protocol'").get() as { body_markdown: string };
+  assert.ok(created.body_markdown.includes("Think of MCP like a USB-C port"));
+  assert.equal(rawOutput(env, "item_mcp_intro").extract_retries, 1);
+});
+
+test("covered_by pointing at a dissimilar section is overridden: the fragment is appended, not dropped", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  seedLangGraphKb(env);
+  insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: recordedContent("supplement") });
+  insertSource(env.db, "kb_hitl", "item_C", ["legacy quote"]);
+  const docs = sectionFragments(recordedContent("supplement"), "Human-in-the-loop");
+  const { gateway } = createReplayGateway([
+    replay.judge(learningJudge(["item_C"], { item_C: "strong" })),
+    ...steps(
+      "item_C",
+      docs,
+      alignment(docs.map((_, index) => (index === 0 ? (["kb_hitl", "u_0"] as [string, string]) : "kb_hitl")))
+    )
+  ]);
+
+  await runPipeline(env, gateway);
+
+  const sections = parseSections(String(entry(env.db, "kb_hitl")!.body_markdown));
+  assert.equal(sections.filter((section) => section.id).length, docs.length, "the 'covered' fragment is appended too");
+  assert.ok(sections.some((section) => section.markdown.includes(docs[0]!.markdown)));
+  assert.equal(result(env.db, "item_C")!.decision, "supplement");
+  const raw = rawOutput(env, "item_C") as { coverage_overridden: Array<{ fragment: string; section_id: string; ratio: number }> };
+  assert.equal(raw.coverage_overridden.length, 1);
+  assert.equal(raw.coverage_overridden[0]!.fragment, "f1");
+  assert.equal(raw.coverage_overridden[0]!.section_id, "u_0");
+  assert.ok(raw.coverage_overridden[0]!.ratio < 0.85);
+  const source = env.db.prepare("SELECT evidence FROM kb_entry_sources WHERE entry_id = 'kb_hitl' AND item_id = 'item_C'").get() as { evidence: string };
+  const evidence = JSON.parse(source.evidence) as Array<{ quote: string; section_id?: string }>;
+  assert.equal(evidence[0]!.quote, "legacy quote", "existing evidence is merged, not overwritten");
+  assert.equal(evidence.filter((row) => row.section_id).length, docs.length);
+});
+
+test("re-organizing an ingested item matches its own sections instead of appending them again", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  seedLangGraphKb(env);
+  insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: recordedContent("supplement") });
+  const docs = sectionFragments(recordedContent("supplement"), "Human-in-the-loop");
+  const rules = [replay.judge(learningJudge(["item_C"], { item_C: "strong" })), ...steps("item_C", docs, alignment(docs.map(() => "kb_hitl")))];
+  await runPipeline(env, createReplayGateway(rules).gateway);
+  const before = entry(env.db, "kb_hitl")!;
+
+  env.db.prepare("UPDATE items SET dirty = 1 WHERE id = 'item_C'").run();
+  const second = createReplayGateway(rules);
+  await runPipeline(env, second.gateway, { scope: "inbox_pending" });
+
+  assert.equal(stepCalls(second.prompts, "align", "item_C").length, 1, "the item went through ⑤ again");
+  const after = entry(env.db, "kb_hitl")!;
+  assert.equal(after.body_markdown, before.body_markdown);
+  assert.equal(after.patch_count, before.patch_count);
+  const source = env.db.prepare("SELECT evidence FROM kb_entry_sources WHERE entry_id = 'kb_hitl' AND item_id = 'item_C'").get() as { evidence: string };
+  assert.equal((JSON.parse(source.evidence) as unknown[]).length, docs.length);
+  assert.equal(itemStatus(env.db, "item_C").organize_status, "ingested");
+});
+
+test("V2: an invalid assignment is retried once, then the unit fails", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  seedLangGraphKb(env);
+  insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: recordedContent("supplement") });
+  const docs = sectionFragments(recordedContent("supplement"), "Human-in-the-loop");
+  const { gateway, prompts } = createReplayGateway([
+    replay.judge(learningJudge(["item_C"], { item_C: "strong" })),
+    ...steps(
+      "item_C",
+      docs,
+      alignment(docs.map(() => ["kb_hitl", "s_missing"] as [string, string]))
+    )
+  ]);
+
+  await runPipeline(env, gateway);
+
+  const aligns = stepCalls(prompts, "align", "item_C");
+  assert.equal(aligns.length, 2);
+  assert.match(aligns[1]!.feedback![0]!, /s_missing/);
+  assert.equal(itemStatus(env.db, "item_C").organize_status, "failed");
+  assert.equal(entry(env.db, "kb_hitl")!.body_markdown, HITL_BODY);
+});
+
+test("user_edited entry: sections are appended after the user's text and the summary is kept", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   seedLangGraphKb(env, { hitlUserEdited: true });
-  insertItem(env.db, { id: "item_C", title: "HITL docs", capturedAt: T(0), markdown: "hitl", status: "ingested" });
-  insertSource(env.db, "kb_hitl", "item_C", ["The interrupt() function pauses graph execution"]);
-  const { gateway, prompts } = createReplayGateway([replay.rewrite("kb_hitl", output("entry_rewrite", "manual-patched"))]);
+  insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(0), markdown: recordedContent("supplement") });
+  const docs = sectionFragments(recordedContent("supplement"), "Human-in-the-loop");
+  const { gateway } = createReplayGateway([
+    replay.judge(learningJudge(["item_C"], { item_C: "strong" })),
+    ...steps(
+      "item_C",
+      docs,
+      alignment(docs.map(() => "kb_hitl"))
+    )
+  ]);
 
-  await runPipeline(env, gateway, { scope: "entry", entryIds: ["kb_hitl"], requirement: "按 定义 / 实现 组织" });
+  await runPipeline(env, gateway);
 
-  const input = prompts.find((call) => (call.input as { entry?: unknown }).entry)!.input as { trigger: string; requirement: string | null };
-  assert.equal(input.trigger, "manual");
-  assert.equal(input.requirement, "按 定义 / 实现 组织");
   const hitl = entry(env.db, "kb_hitl")!;
-  assert.ok(String(hitl.body_markdown).startsWith(HITL_BODY));
-  assert.ok(String(hitl.body_markdown).includes("重写建议"));
+  const sections = parseSections(String(hitl.body_markdown));
+  assert.deepEqual(sections.slice(0, 3), parseSections(HITL_BODY), "user text is untouched");
+  assert.equal(sections.filter((section) => section.id).length, docs.length);
+  assert.equal(hitl.summary, "人工审批节点");
+  assert.equal(hitl.user_edited, 1);
+});
+
+test("⑦ scope=entry restructures the entry without changing section text", async (t) => {
+  const env = createEnv();
+  t.after(() => env.app.close());
+  const body = "## 用法\n<!-- section:s_use src:item_x -->\n调用 interrupt()。\n\n## 定义\n<!-- section:s_def src:item_x -->\n人工审批节点。";
+  insertEntry(env.db, { id: "kb_hitl", name: "Human-in-the-loop", body, patchCount: 8 });
+  const { gateway } = createReplayGateway([replay.restructure("kb_hitl", { order: ["s_def", "s_use"], headings: [], merge: [], summary: "人工审批节点" })]);
+
+  const { runId, result: run } = await runPipeline(env, gateway, { scope: "entry", entryIds: ["kb_hitl"] });
+
+  const hitl = entry(env.db, "kb_hitl")!;
+  assert.deepEqual(
+    parseSections(String(hitl.body_markdown)).map((section) => [section.id, section.markdown]),
+    [
+      ["s_def", "人工审批节点。"],
+      ["s_use", "调用 interrupt()。"]
+    ]
+  );
+  assert.equal(hitl.patch_count, 0);
+  assert.equal(run.stats.kb.entriesRewritten, 1);
+  assert.ok(runJobs(env.db, runId).some((job) => job.kind === "entry_rewrite" && job.status === "rewritten"));
 });
 
 test("a failing item does not block the batch; retry processes only the failed item", async (t) => {
@@ -481,12 +688,8 @@ test("a failing item does not block the batch; retry processes only the failed i
   t.after(() => env.app.close());
   seedLangGraphKb(env);
   seedLangGraphItems(env);
-  const judge = replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" }));
-  const broken = createReplayGateway([
-    judge,
-    replay.triage("item_B", { decision: "nonsense" }),
-    ...steps("item_C", output("knowledge_processing", "supplement"))
-  ]);
+  const [, , ...docsSteps] = langGraphSteps();
+  const broken = createReplayGateway([judgeAll(), replay.extract("item_B", { fragments: "nonsense" }), ...docsSteps]);
 
   const first = await runPipeline(env, broken.gateway);
 
@@ -499,7 +702,7 @@ test("a failing item does not block the batch; retry processes only the failed i
   assert.equal(failedJob.status, "failed");
   assert.ok(failedJob.error);
 
-  const fixed = createReplayGateway([judge, ...steps("item_B", output("knowledge_processing", "conversation-thread"))]);
+  const fixed = createReplayGateway([judgeAll(), ...langGraphSteps()]);
   const retry = await runPipeline(env, fixed.gateway, { trigger: "retry", itemIds: ["item_B", "item_B2"] });
 
   assert.equal(itemStatus(env.db, "item_B").organize_status, "ingested");
@@ -514,14 +717,7 @@ test("daily token limit pauses the run and leaves unfinished items pending", asy
   t.after(() => env.app.close());
   seedLangGraphKb(env);
   seedLangGraphItems(env);
-  const { gateway } = createReplayGateway(
-    [
-      replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" })),
-      ...steps("item_B", output("knowledge_processing", "conversation-thread")),
-      ...steps("item_C", output("knowledge_processing", "supplement"))
-    ],
-    { limit: 1 }
-  );
+  const { gateway } = createReplayGateway([judgeAll(), ...langGraphSteps()], { limit: 1 });
 
   const { runId, result: run } = await runPipeline(env, gateway);
 
@@ -535,11 +731,7 @@ test("re-running the same batch skips every item by input_hash (no ③/⑤ calls
   t.after(() => env.app.close());
   seedLangGraphKb(env);
   seedLangGraphItems(env);
-  const rules = [
-    replay.judge(learningJudge(["item_B", "item_B2", "item_C"], { item_B: "strong", item_B2: "strong", item_C: "strong" })),
-    ...steps("item_B", output("knowledge_processing", "conversation-thread")),
-    ...steps("item_C", output("knowledge_processing", "supplement"))
-  ];
+  const rules = [judgeAll(), ...langGraphSteps()];
   await runPipeline(env, createReplayGateway(rules).gateway);
   const patchCount = entry(env.db, "kb_hitl")!.patch_count;
 
@@ -556,4 +748,11 @@ test("re-running the same batch skips every item by input_hash (no ③/⑤ calls
   );
   assert.equal(entry(env.db, "kb_hitl")!.patch_count, patchCount);
   assert.equal(itemStatus(env.db, "item_C").organize_status, "ingested");
+
+  env.db.prepare("UPDATE kb_entries SET deleted_at = '2026-10-05T00:00:00.000Z'").run();
+  env.db.prepare("UPDATE items SET organize_status = 'pending'").run();
+  const third = createReplayGateway(rules);
+  const { result: rerun } = await runPipeline(env, third.gateway);
+  assert.equal(rerun.stats.items.skipped, 0, "results whose entries were deleted are not reused");
+  assert.ok(kpCalls(third.prompts).length > 0);
 });

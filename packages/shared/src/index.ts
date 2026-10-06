@@ -1,6 +1,7 @@
 export * from "./domains";
 export * from "./events";
 export * from "./settings";
+export * from "./kb-sections";
 export * from "./api/capture";
 export * from "./api/inbox";
 export * from "./api/notes";

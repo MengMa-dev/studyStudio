@@ -325,6 +325,7 @@ export const mockApi = {
       targetId: body.targetId ?? null,
       text: body.text,
       origin: body.origin,
+      anchor: body.scope === "entry" ? (body.anchor ?? null) : null,
       usedAt: null,
       createdAt: new Date().toISOString(),
       updatedAt: null

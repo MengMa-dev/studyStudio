@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import type { CreateNoteRequest, Note, NotesListQuery } from "@study-studio/shared";
+import { parseSections, type CreateNoteRequest, type Note, type NotesListQuery } from "@study-studio/shared";
 import type { NoteRow } from "../../db/types.js";
 
 export class NoteTargetError extends Error {
@@ -17,6 +17,7 @@ export function toNote(row: NoteRow): Note {
     targetId: row.target_id,
     text: row.text,
     origin: row.origin,
+    anchor: row.anchor ?? null,
     usedAt: row.used_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -50,11 +51,15 @@ function markItemDirty(db: DatabaseSync, itemId: string): void {
 
 export function createNote(db: DatabaseSync, input: CreateNoteRequest, now = new Date()): Note {
   const targetId = input.scope === "fuzzy" ? null : (input.targetId ?? null);
+  const anchor = input.anchor ?? null;
+  if (anchor && input.scope !== "entry") throw new NoteTargetError("anchor is only allowed on entry notes");
   if (input.scope !== "fuzzy") {
     if (!targetId) throw new NoteTargetError("targetId is required");
     const table = input.scope === "item" ? "items" : "kb_entries";
-    if (!db.prepare(`SELECT 1 AS ok FROM ${table} WHERE id = ? AND deleted_at IS NULL`).get(targetId)) {
-      throw new NoteTargetError(`${input.scope} target not found`);
+    const target = db.prepare(`SELECT * FROM ${table} WHERE id = ? AND deleted_at IS NULL`).get(targetId) as { body_markdown?: string | null } | undefined;
+    if (!target) throw new NoteTargetError(`${input.scope} target not found`);
+    if (anchor && !parseSections(target.body_markdown ?? "").some((section) => section.id === anchor)) {
+      throw new NoteTargetError("anchor section not found");
     }
   }
   const row: NoteRow = {
@@ -63,18 +68,20 @@ export function createNote(db: DatabaseSync, input: CreateNoteRequest, now = new
     target_id: targetId,
     text: input.text,
     origin: input.origin,
+    anchor,
     derived_from: null,
     used_at: null,
     created_at: now.toISOString(),
     updated_at: null,
     deleted_at: null
   };
-  db.prepare("INSERT INTO notes(id, scope, target_id, text, origin, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
+  db.prepare("INSERT INTO notes(id, scope, target_id, text, origin, anchor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
     row.id,
     row.scope,
     row.target_id,
     row.text,
     row.origin,
+    row.anchor ?? null,
     row.created_at
   );
   if (row.scope === "item" && row.target_id) markItemDirty(db, row.target_id);

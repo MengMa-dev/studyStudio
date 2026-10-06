@@ -17,6 +17,7 @@ import { createApp, createAuthState } from "../../src/http/app";
 import { OrganizeWorker, organizeWorkerFor } from "../../src/jobs/organize-worker";
 import {
   NOW,
+  alignment,
   createEnv,
   createReplayGateway,
   entry,
@@ -28,6 +29,7 @@ import {
   recordedContent,
   recordedTurns,
   replay,
+  sectionFragments,
   steps,
   setLearnerProfile,
   type TestEnv
@@ -62,9 +64,18 @@ function seed(env: TestEnv): void {
     conversationId: "conv"
   });
   insertItem(env.db, { id: "item_C", title: "Human-in-the-loop - LangGraph Docs", capturedAt: T(10), markdown: recordedContent("supplement") });
+  insertEntry(env.db, {
+    id: "kb_marked",
+    name: "Marked",
+    body: "## A\n<!-- section:s_a src:item_hitl_blog -->\n甲。\n\n## B\n<!-- section:s_b src:item_hitl_blog -->\n乙。",
+    patchCount: 8
+  });
 }
 
 function rules() {
+  const [first, second] = recordedTurns("conversation-thread");
+  const thread = [...sectionFragments(first!.answer, "Checkpoint", "item_B"), ...sectionFragments(second!.answer, "Human-in-the-loop", "item_B2")];
+  const docs = sectionFragments(recordedContent("supplement"), "Human-in-the-loop");
   return [
     replay.judge(
       output("learning_judge", "learning", {
@@ -75,10 +86,13 @@ function rules() {
         ]
       })
     ),
-    ...steps("item_B", output("knowledge_processing", "conversation-thread")),
-    ...steps("item_C", output("knowledge_processing", "supplement")),
-    replay.rewrite("kb_hitl", output("entry_rewrite", "manual-patched")),
-    replay.rewrite("kb_checkpoint", output("entry_rewrite", "stale"))
+    ...steps("item_B", thread, alignment(["kb_checkpoint", "kb_hitl"])),
+    ...steps(
+      "item_C",
+      docs,
+      alignment(docs.map(() => "kb_hitl"))
+    ),
+    replay.restructure("kb_marked", { order: ["s_b", "s_a"], headings: [{ section_id: "s_b", heading: "用途" }], merge: [], summary: "已整理" })
   ];
 }
 
@@ -94,7 +108,7 @@ function enableAuto(env: TestEnv, patch: Partial<OrganizeSettings["triggers"]> =
   });
 }
 
-test("worker end-to-end: run → entries + organize_runs; deleting a source → stale → rewritten next run", async (t) => {
+test("worker end-to-end: run → entries + organize_runs; an entry run restructures the entry", async (t) => {
   const env = createEnv();
   t.after(() => env.app.close());
   seed(env);
@@ -139,18 +153,17 @@ test("worker end-to-end: run → entries + organize_runs; deleting a source → 
   assert.equal(requirement.scope, "fuzzy");
   assert.ok(requirement.used_at);
 
-  env.db.prepare("UPDATE items SET deleted_at = ? WHERE id = 'item_C'").run(new Date(NOW.getTime() + 60_000).toISOString());
-  const next = worker.enqueueManual({ trigger: "manual", scope: "kb_pending", itemIds: [], entryIds: [], requirement: null, allowOverLimit: false });
+  const next = worker.enqueueManual({ trigger: "manual", scope: "entry", itemIds: [], entryIds: ["kb_marked"], requirement: null, allowOverLimit: false });
   assert.ok("run" in next);
   await worker.whenIdle();
 
-  const hitl = entry(env.db, "kb_hitl")!;
-  assert.equal(hitl.stale, 0);
-  assert.ok(String(hitl.body_markdown).includes("## 常见场景"));
+  const marked = entry(env.db, "kb_marked")!;
+  assert.equal(marked.patch_count, 0);
+  assert.ok(String(marked.body_markdown).startsWith("## 用途\n<!-- section:s_b src:item_hitl_blog -->\n乙。"));
   const rewritten = runDetail(env.db, next.run.id)!;
   assert.equal(rewritten.status, "completed");
-  assert.ok(rewritten.entries.some((change) => change.entryId === "kb_hitl" && change.change === "rewritten"));
-  assert.ok(rewritten.stats.kb.entriesRewritten >= 1);
+  assert.ok(rewritten.entries.some((change) => change.entryId === "kb_marked" && change.change === "rewritten"));
+  assert.equal(rewritten.stats.kb.entriesRewritten, 1);
 });
 
 test("worker without AI gateway marks the run failed and emits run_failed", async (t) => {
