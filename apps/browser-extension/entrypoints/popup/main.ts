@@ -28,7 +28,7 @@ function setConnectionUi(status: Status) {
   dot.className = `dot ${state}`;
   const label = el("connection-label");
   if (state === "online") label.textContent = "已连接 Study Studio";
-  else if (state === "unauthorized") label.textContent = "配对令牌无效，请重新填写";
+  else if (state === "unauthorized") label.textContent = "未配对：打开一次工作台即自动配对";
   else if (state === "offline") label.textContent = "本地服务未启动（npx study-studio）";
   else label.textContent = "检测中…";
 

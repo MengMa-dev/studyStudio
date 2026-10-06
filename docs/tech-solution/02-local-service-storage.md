@@ -237,5 +237,5 @@ CREATE VIRTUAL TABLE chunks_vec USING vec0(embedding float[1024]);              
 
 | 方案 | 优点 | 缺点 |
 | --- | --- | --- |
-| ★ 一次性登录链接（启动时打印并自动打开 `/app/login?code=`），服务换发 `HttpOnly; SameSite=Strict` Cookie | 用户无感；Cookie 不可被页面脚本读取 | 换浏览器需从终端或扩展弹窗重新打开链接 |
+| ★ 一次性登录链接（启动时自动打开 `/app/login?code=`；`study-studio open` 经数据目录 `.login-code` 为运行中的服务签发），服务换发 `HttpOnly; SameSite=Strict` 长效 Cookie，会话持久化到 `.sessions` | 用户无感，重启不掉登录；Cookie 不可被页面脚本读取；扩展在已登录工作台页经 `/v1/pairing/token` 自动配对 | 换浏览器需运行 `study-studio open` |
 | 页面输入配对令牌，存 localStorage | 实现简单 | 令牌暴露给页面脚本；每次换浏览器都要粘贴 |

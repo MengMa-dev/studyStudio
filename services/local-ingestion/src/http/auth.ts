@@ -1,8 +1,13 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 export const WORKBENCH_COOKIE = "ss_session";
+const LOGIN_CODE_TTL_MS = 5 * 60 * 1000;
+const MAX_SESSIONS = 20;
+const SESSION_MAX_AGE_S = 400 * 24 * 60 * 60;
 
 export type AuthState = {
   pairingToken: string;
@@ -13,27 +18,49 @@ export type AuthState = {
   loginCodes: Map<string, number>;
   /** Active workbench session tokens. */
   sessions: Set<string>;
+  /** Sessions persist to `<dataDir>/.sessions`; `.login-code` lets the CLI log in to a running server. */
+  dataDir?: string;
 };
 
-export function createAuthState(pairingToken: string, port: number, mcpToken = randomBytes(32).toString("base64url")): AuthState {
-  return { pairingToken, mcpToken, port, loginCodes: new Map(), sessions: new Set() };
+export function createAuthState(pairingToken: string, port: number, mcpToken = randomBytes(32).toString("base64url"), dataDir?: string): AuthState {
+  const file = dataDir && join(dataDir, ".sessions");
+  const sessions = new Set(file && existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : []);
+  return { pairingToken, mcpToken, port, loginCodes: new Map(), sessions, ...(dataDir ? { dataDir } : {}) };
 }
 
-export function issueLoginCode(auth: AuthState, ttlMs = 5 * 60 * 1000): string {
+export function issueLoginCode(auth: AuthState, ttlMs = LOGIN_CODE_TTL_MS): string {
   const code = randomBytes(24).toString("base64url");
   auth.loginCodes.set(code, Date.now() + ttlMs);
   return code;
 }
 
+/** Out-of-process login (`study-studio open`): whoever can write the data dir may log in. */
+export function writeLoginCode(dataDir: string): string {
+  const code = randomBytes(24).toString("base64url");
+  writeFileSync(join(dataDir, ".login-code"), code, { mode: 0o600 });
+  return code;
+}
+
+function consumeFileLoginCode(dataDir: string, code: string): boolean {
+  const file = join(dataDir, ".login-code");
+  if (!existsSync(file)) return false;
+  const ok = readFileSync(file, "utf8").trim() === code && Date.now() - statSync(file).mtimeMs < LOGIN_CODE_TTL_MS;
+  if (ok) rmSync(file, { force: true });
+  return ok;
+}
+
 export function consumeLoginCode(auth: AuthState, code: string): boolean {
   const expires = auth.loginCodes.get(code);
   auth.loginCodes.delete(code);
-  return Boolean(expires && expires > Date.now());
+  if (expires && expires > Date.now()) return true;
+  return Boolean(auth.dataDir && consumeFileLoginCode(auth.dataDir, code));
 }
 
 export function createSession(auth: AuthState): string {
   const token = randomBytes(32).toString("base64url");
   auth.sessions.add(token);
+  for (const old of [...auth.sessions].slice(0, -MAX_SESSIONS)) auth.sessions.delete(old);
+  if (auth.dataDir) writeFileSync(join(auth.dataDir, ".sessions"), [...auth.sessions].join("\n"), { mode: 0o600 });
   return token;
 }
 
@@ -122,6 +149,7 @@ export function setSessionCookie(c: Context, token: string): void {
     httpOnly: true,
     sameSite: "Strict",
     path: "/",
+    maxAge: SESSION_MAX_AGE_S,
     secure: false
   });
 }

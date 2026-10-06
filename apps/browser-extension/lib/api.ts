@@ -54,7 +54,7 @@ export async function apiRequest<T = unknown>(
   { method = "GET", body, headers = {}, timeoutMs = 3_000 }: { method?: string; body?: unknown; headers?: Record<string, string>; timeoutMs?: number } = {}
 ): Promise<ApiResult<T>> {
   const { ingestionUrl, pairingToken } = await readConnection();
-  if (!pairingToken) return { ok: false, status: 0, body: null, error: "未配置配对令牌" };
+  if (!pairingToken) return { ok: false, status: 401, body: null, error: "未配对" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {

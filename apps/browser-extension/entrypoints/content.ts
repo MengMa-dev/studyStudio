@@ -19,11 +19,25 @@ type Bootstrap = {
   conversationPlatforms: Record<string, boolean>;
 };
 
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/** On the logged-in workbench, fetch the pairing token so the user never copies it. Loopback only: any site can add the meta tag. */
+async function autoPair(): Promise<void> {
+  if (!LOOPBACK.has(location.hostname)) return;
+  const response = await fetch("/v1/pairing/token", { credentials: "same-origin" }).catch(() => null);
+  if (!response?.ok) return;
+  const { ingestionUrl, pairingToken } = (await response.json()) as { ingestionUrl?: string; pairingToken?: string };
+  if (!ingestionUrl || !pairingToken || !LOOPBACK.has(new URL(ingestionUrl).hostname)) return;
+  const stored = await browser.storage.local.get(["ingestionUrl", "pairingToken"]);
+  if (stored.ingestionUrl === ingestionUrl && stored.pairingToken === pairingToken) return;
+  await browser.runtime.sendMessage({ type: "study-studio:save-connection", ingestionUrl, pairingToken }).catch(() => {});
+}
+
 export default defineContentScript({
   matches: ["http://*/*", "https://*/*"],
   runAt: "document_idle",
   async main() {
-    if (document.querySelector('meta[name="study-studio-app"]')) return;
+    if (document.querySelector('meta[name="study-studio-app"]')) return autoPair();
     const flags = globalThis as { __studyStudioInstalled?: boolean };
     if (flags.__studyStudioInstalled) return;
     flags.__studyStudioInstalled = true;

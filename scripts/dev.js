@@ -3,12 +3,14 @@
  * Ctrl+C (or either process exiting) stops both.
  */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
 const root = process.cwd();
 const require = createRequire(join(root, "package.json"));
+const dataDir = process.env.STUDY_STUDIO_DATA_DIR ?? join(root, "StudyStudioData");
 
 function resolveBin(pkg, relative) {
   for (const base of [join(root, "node_modules"), join(root, "apps/workbench/node_modules")]) {
@@ -25,7 +27,7 @@ const tasks = [
     args: [resolveBin("tsx", "dist/cli.mjs"), "watch", "services/local-ingestion/src/server.ts"],
     cwd: root,
     env: {
-      STUDY_STUDIO_DATA_DIR: process.env.STUDY_STUDIO_DATA_DIR ?? join(root, "StudyStudioData"),
+      STUDY_STUDIO_DATA_DIR: dataDir,
       STUDY_STUDIO_WORKBENCH_URL: process.env.STUDY_STUDIO_WORKBENCH_URL ?? "http://127.0.0.1:5173/app/"
     }
   },
@@ -89,3 +91,32 @@ process.on("SIGINT", () => stopAll("SIGINT"));
 process.on("SIGTERM", () => stopAll("SIGTERM"));
 
 console.log("[dev] 本地服务 http://127.0.0.1:43118 ；工作台（真实 API）http://127.0.0.1:5173/app/ ；Ctrl+C 退出");
+
+/** Once per `npm run dev` (not per tsx-watch restart): log in via the server's `.login-code` file and open the workbench. */
+async function openWorkbenchOnce() {
+  if (process.env.STUDY_STUDIO_NO_OPEN === "1") return;
+  for (let i = 0; i < 60 && !stopping; i++) {
+    const ok = await fetch("http://127.0.0.1:43118/health").then(
+      (r) => r.ok,
+      () => false
+    );
+    if (ok) {
+      mkdirSync(dataDir, { recursive: true });
+      const code = randomBytes(24).toString("base64url");
+      writeFileSync(join(dataDir, ".login-code"), code, { mode: 0o600 });
+      const url = `http://127.0.0.1:43118/app/login?code=${code}`;
+      const [cmd, args] =
+        process.platform === "darwin"
+          ? ["open", [url]]
+          : process.platform === "win32"
+            ? ["cmd", ["/c", "start", "", url.replace(/&/g, "^&")]]
+            : ["xdg-open", [url]];
+      spawn(cmd, args, { stdio: "ignore", detached: true })
+        .on("error", () => console.log(`[dev] 请手动打开 ${url}`))
+        .unref();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+void openWorkbenchOnce();

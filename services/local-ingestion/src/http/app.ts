@@ -30,6 +30,7 @@ import {
   issueLoginCode,
   requireCaptureOrWorkbench,
   requireSameOrigin,
+  requireWorkbenchSession,
   setSessionCookie,
   type AuthState
 } from "./auth.js";
@@ -78,7 +79,10 @@ export function createApp(services: AppServices): Hono {
   app.get("/app/login", (c) => {
     const code = c.req.query("code");
     if (!code || !consumeLoginCode(auth, code)) {
-      return c.html("<!doctype html><title>Study Studio</title><p>登录链接无效或已过期，请从终端重新打开。</p>", 401);
+      return c.html(
+        "<!doctype html><title>Study Studio</title><p>登录链接无效或已过期。请运行 <code>study-studio open</code>（源码仓库中为 <code>npm start -- open</code>）重新登录。</p>",
+        401
+      );
     }
     const session = createSession(auth);
     setSessionCookie(c, session);
@@ -117,6 +121,8 @@ export function createApp(services: AppServices): Hono {
   api.use("*", requireSameOrigin(getPort));
 
   api.get("/pairing", (c) => c.json({ paired: true }));
+  // The extension's content script reads this from the logged-in workbench page to pair without copy-paste.
+  api.get("/pairing/token", requireWorkbenchSession(auth), (c) => c.json({ ingestionUrl: `http://127.0.0.1:${getPort()}`, pairingToken: auth.pairingToken }));
 
   api.get("/pages", (c) => {
     const canonicalUrl = c.req.query("canonicalUrl");
