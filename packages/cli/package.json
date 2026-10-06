@@ -1,6 +1,7 @@
 {
   "name": "study-studio",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Local-first learning capture service and workbench. Run `npx study-studio`.",
   "type": "module",
   "bin": {
