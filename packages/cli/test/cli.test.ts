@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { mergeCodexMcp, mergeCursorMcp } from "@study-studio/local-ingestion";
 import { CliUsageError, DEFAULT_PORT, parseCliArgs } from "../src/args.js";
 import { autostartFile, launchdPlist, systemdUnit, windowsTaskCommand } from "../src/autostart.js";
 import { isSupportedNode } from "../src/node-version.js";
@@ -34,8 +35,45 @@ test("parseCliArgs: help / version / autostart", () => {
   });
 });
 
+test("parseCliArgs: open / agent install", () => {
+  const dataDir = join(home, "StudyStudioData");
+  assert.deepEqual(parseCliArgs(["open"], {}, home), { kind: "open", dataDir, port: DEFAULT_PORT });
+  assert.deepEqual(parseCliArgs(["agent", "install"], {}, home), { kind: "agent-install", dataDir, port: DEFAULT_PORT, targets: ["cursor"] });
+  assert.deepEqual((parseCliArgs(["agent", "install", "--target", "claude", "--target", "codex"], {}, home) as { targets: string[] }).targets, [
+    "claude",
+    "codex"
+  ]);
+});
+
+test("MCP config merge keeps other servers and replaces ours", () => {
+  const endpoint = { url: "http://127.0.0.1:43118/mcp", token: "T" };
+  const cursor = JSON.parse(mergeCursorMcp(mergeCursorMcp('{"mcpServers":{"other":{"url":"x"}}}', { ...endpoint, token: "old" }), endpoint));
+  assert.deepEqual(cursor.mcpServers.other, { url: "x" });
+  assert.equal(cursor.mcpServers["study-studio"].headers.Authorization, "Bearer T");
+  assert.equal(JSON.parse(mergeCursorMcp("", endpoint)).mcpServers["study-studio"].url, endpoint.url);
+  assert.throws(() => mergeCursorMcp("not json", endpoint));
+
+  const toml = mergeCodexMcp('model = "o3"\n\n[mcp_servers.study-studio]\nurl = "old"\n\n[mcp_servers.other]\nurl = "x"\n', endpoint);
+  assert.equal(toml.match(/\[mcp_servers\.study-studio\]/g)?.length, 1);
+  assert.match(toml, /\[mcp_servers\.other\]\nurl = "x"/);
+  assert.match(toml, /^model = "o3"/);
+  assert.doesNotMatch(toml, /"old"/);
+  assert.match(toml, /Authorization = "Bearer T"/);
+});
+
 test("parseCliArgs: rejects bad input", () => {
-  for (const argv of [["--port", "abc"], ["--port", "70000"], ["--port", "-1"], ["--unknown"], ["serve"], ["autostart"], ["autostart", "on"]]) {
+  for (const argv of [
+    ["--port", "abc"],
+    ["--port", "70000"],
+    ["--port", "-1"],
+    ["--unknown"],
+    ["serve"],
+    ["autostart"],
+    ["autostart", "on"],
+    ["agent"],
+    ["agent", "install", "--target", "vim"],
+    ["open", "x"]
+  ]) {
     assert.throws(() => parseCliArgs(argv, {}, home), CliUsageError, argv.join(" "));
   }
 });

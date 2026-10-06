@@ -3,38 +3,32 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { resetMockState } from "@/api";
 import { useUiStore } from "@/stores/ui";
-import { SettingsAgent } from "./SettingsAgent";
+import { AgentInstallGroup } from "./SettingsAgent";
 
 function renderSection() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SettingsAgent />
+      <AgentInstallGroup />
     </QueryClientProvider>
   );
 }
 
-describe("设置 · Agent 接入", () => {
+describe("模型能力 · 一键安装到 Agent", () => {
   beforeEach(() => {
     resetMockState();
     useUiStore.setState({ toasts: [] });
   });
   afterEach(cleanup);
 
-  it("展示地址与三家客户端配置，令牌重置后片段更新", async () => {
+  it("每个 Agent 一键安装，安装后显示已安装；不展示 MCP 地址与令牌", async () => {
     renderSection();
-    expect(await screen.findByText("http://127.0.0.1:43118/mcp")).toBeInTheDocument();
-    expect(document.body.textContent).toContain('"Authorization": "Bearer mcp-mock-token-0001"');
-    expect(document.body.textContent).toContain("claude mcp add --transport http study-studio http://127.0.0.1:43118/mcp");
-    expect(document.body.textContent).toContain('bearer_token_env_var = "STUDY_STUDIO_MCP_TOKEN"');
-    fireEvent.click(screen.getByRole("button", { name: "重置" }));
-    await waitFor(() => expect(document.body.textContent).not.toContain("mcp-mock-token-0001"));
-  });
-
-  it("按勾选目标安装 skill", async () => {
-    renderSection();
-    fireEvent.click(await screen.findByLabelText("~/.codex/skills"));
-    fireEvent.click(screen.getByRole("button", { name: "安装" }));
-    await waitFor(() => expect(useUiStore.getState().toasts.at(-1)?.message).toBe("已安装到 2 个位置"));
+    const buttons = await screen.findAllByRole("button", { name: "一键安装" });
+    expect(buttons).toHaveLength(3);
+    expect(document.body.textContent).not.toContain("mcp-mock-token");
+    fireEvent.click(buttons[2]!);
+    await waitFor(() => expect(useUiStore.getState().toasts.at(-1)?.message).toBe("已安装到 Codex，重新加载 Codex 后生效"));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "一键安装" })).toHaveLength(2));
+    expect(screen.getByRole("button", { name: "重新安装" })).toBeInTheDocument();
   });
 });

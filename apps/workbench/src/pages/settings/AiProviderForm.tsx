@@ -115,7 +115,7 @@ export function AiProviderForm({ provider, models, onSaved, onTested, onDeleted,
         <label className="field">
           类型
           <select className="input" aria-label="类型" value={type} onChange={(event) => setType(event.target.value as AiProviderType)}>
-            {AI_PROVIDER_TYPES.map((value) => (
+            {AI_PROVIDER_TYPES.filter((value) => value !== "agent-cli").map((value) => (
               <option key={value} value={value}>
                 {PROVIDER_TYPE_LABEL[value]}
               </option>

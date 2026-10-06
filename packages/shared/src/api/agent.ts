@@ -8,23 +8,30 @@ export const agentConfigResponseSchema = z.object({
   /** `http://127.0.0.1:<port>/mcp` */
   url: z.string().min(1),
   token: z.string().min(1),
-  skillVersion: z.number().int().positive()
+  skillVersion: z.number().int().positive(),
+  /** Skill present and MCP config carries the current token, per client. */
+  installed: z.record(agentSkillTargetSchema, z.boolean())
 });
 export type AgentConfigResponse = z.infer<typeof agentConfigResponseSchema>;
 
-export const agentSkillInstallRequestSchema = z.object({
-  targets: z.array(agentSkillTargetSchema).min(1)
+export const agentInstallRequestSchema = z.object({
+  target: agentSkillTargetSchema
 });
-export type AgentSkillInstallRequest = z.infer<typeof agentSkillInstallRequestSchema>;
+export type AgentInstallRequest = z.infer<typeof agentInstallRequestSchema>;
 
-export const agentSkillInstallResponseSchema = z.object({
-  /** Absolute paths of the written SKILL.md files. */
-  paths: z.array(z.string())
+export const agentInstallResultSchema = z.object({
+  target: agentSkillTargetSchema,
+  ok: z.boolean(),
+  skillPath: z.string(),
+  /** Config file written (or the command run); null when MCP registration failed. */
+  mcpConfig: z.string().nullable(),
+  /** What the user must do by hand when `ok` is false. */
+  manual: z.string().nullable()
 });
-export type AgentSkillInstallResponse = z.infer<typeof agentSkillInstallResponseSchema>;
+export type AgentInstallResult = z.infer<typeof agentInstallResultSchema>;
 
 export const AGENT_API = {
   config: "/v1/agent/config",
   tokenReset: "/v1/agent/token/reset",
-  skillInstall: "/v1/agent/skill/install"
+  install: "/v1/agent/install"
 } as const;

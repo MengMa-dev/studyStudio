@@ -2,6 +2,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { defaultSettingsMiddleware, wrapLanguageModel, type EmbeddingModel, type LanguageModel } from "ai";
 import { createOllama } from "ollama-ai-provider-v2";
+import { AGENT_CLIENTS, createAgentLanguageModel } from "./agent-cli";
 import { createMockProvider, type MockProviderOptions } from "./mock";
 import type { EmbeddingModelHandle, LanguageModelHandle, ProviderConfig, ProviderType } from "./types";
 
@@ -79,6 +80,18 @@ export function createProviderRuntime(config: ProviderConfig, options: CreatePro
           dimensions
         }),
         listModels: async () => []
+      };
+    }
+    case "agent-cli": {
+      const client = AGENT_CLIENTS.find((candidate) => candidate === config.baseUrl);
+      if (!client) throw new Error(`Unknown agent client: ${String(config.baseUrl)}`);
+      return {
+        type: "agent-cli",
+        languageModel: (modelId) => ({ model: createAgentLanguageModel(client, modelId), wrapTopLevelUnion: false, supportsStructuredOutputs: false }),
+        embeddingModel: () => {
+          throw new Error("Agent 不提供 embedding，请为「向量 Embedding」选择其他服务商");
+        },
+        listModels: async () => ["default"]
       };
     }
     case "openai-compatible":

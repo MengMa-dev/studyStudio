@@ -156,8 +156,8 @@ const settingsRoute = createRoute({
   path: "/settings/$section",
   component: function SettingsRoute() {
     const { section } = settingsRoute.useParams();
-    const allowed = ["collect", "ai", "organize", "agent", "profile", "data"] as const;
-    const current = allowed.includes(section as (typeof allowed)[number]) ? (section as (typeof allowed)[number]) : "collect";
+    const allowed = ["collect", "ai", "organize", "profile", "data"] as const;
+    const current = section === "agent" ? "ai" : allowed.includes(section as (typeof allowed)[number]) ? (section as (typeof allowed)[number]) : "collect";
     return <SettingsPage section={current} />;
   }
 });

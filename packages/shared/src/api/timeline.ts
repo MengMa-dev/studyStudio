@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const timelineRowTypeSchema = z.enum(["webpage", "conversation", "fuzzy"]);
+export const timelineRowTypeSchema = z.enum(["webpage", "conversation", "document", "fuzzy"]);
 export type TimelineRowType = z.infer<typeof timelineRowTypeSchema>;
 
 export const timelineRowSchema = z.object({

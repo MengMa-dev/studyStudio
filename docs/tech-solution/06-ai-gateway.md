@@ -21,7 +21,8 @@ services/local-ingestion/src/ai/
   prompts/          提示词模板，带版本号（写入 organize_results.prompt_version）
 ```
 
-- 服务商类型：`openai-compatible`（OpenAI、DeepSeek、通义、Kimi、智谱、OpenRouter、Groq 等）、`google`（`@ai-sdk/google`，Gemini 原生接口）、`anthropic`、`ollama`（`ollama-ai-provider-v2`）。
+- 服务商类型：`openai-compatible`（OpenAI、DeepSeek、通义、Kimi、智谱、OpenRouter、Groq 等）、`google`（`@ai-sdk/google`，Gemini 原生接口）、`anthropic`、`ollama`（`ollama-ai-provider-v2`）、`agent-cli`。
+- `agent-cli`（`ai/agent-cli.ts`）：把本机已登录的 Cursor / Claude Code / Codex 命令行（`cursor-agent -p --mode ask`、`claude -p`、`codex exec --sandbox read-only`）包成 AI SDK `LanguageModel`，`base_url` 存客户端 id，模型 `default` = CLI 自带默认。「一键安装到 Agent」时自动注册为 `agent-<client>` 服务商，可用于除 Embedding 外的所有任务。每次调用起一个进程（空工作目录、只读），结构化输出靠 prompt 中的 JSON Schema + 网关的修复重试，工具调用用 `{"tool_calls":[…]}` 文本协议解析；不流式，单次耗时数秒起，用量记 CLI 返回值或按字符估算。
 - 备用模型：每个任务可配一个备用模型（`task_models.fallback_*`）；主模型 429 / 5xx 重试耗尽后切到备用模型，仍失败才算节点失败。
 - 结构化输出：整理与抽取使用 Zod schema 约束 JSON；对不支持 JSON Schema 的模型降级为「JSON 模式 + 本地校验 + 一次修复重试」。
 - 用量：每次调用后写 `usage_daily`（输入/输出 tokens）；调用前检查当日累计是否超限。

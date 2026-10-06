@@ -19,6 +19,8 @@ export function SettingsProfile() {
 
   return setGroup(
     "学习者档案",
-    <ProfileEditor initial={profile.data.profile} saving={save.isPending} onCancel={() => undefined} onSave={(next) => save.mutate(next)} />
+    <div style={{ padding: 16 }}>
+      <ProfileEditor initial={profile.data.profile} saving={save.isPending} onCancel={() => undefined} onSave={(next) => save.mutate(next)} />
+    </div>
   );
 }

@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OrganizeSettingsUpdate } from "@study-studio/shared";
 import { api } from "@/api";
 import { formatDateTime } from "@/lib/kb";
-import { useOrganizeStore } from "@/stores/organize";
 import { useUiStore } from "@/stores/ui";
 import { setGroup, setRow } from "./SettingsPage";
 
@@ -14,12 +13,10 @@ function Switch({ on, label, disabled, onToggle }: { on: boolean; label: string;
   );
 }
 
-/** 10「整理规则」: master switch, three triggers, output language, last/next run and a manual「整理」. */
+/** 10「整理规则」: master switch, three triggers, output language and next run. */
 export function SettingsOrganize() {
   const queryClient = useQueryClient();
   const pushToast = useUiStore((state) => state.pushToast);
-  const openOrganize = useOrganizeStore((state) => state.openDialog);
-  const active = useOrganizeStore((state) => state.active);
   const query = useQuery({ queryKey: ["organize-settings"], queryFn: () => api.getOrganizeSettings() });
   const runs = useQuery({ queryKey: ["organize-runs", "latest"], queryFn: () => api.listOrganizeRuns({ limit: 1 }) });
   const [time, setTime] = useState("");
@@ -41,7 +38,7 @@ export function SettingsOrganize() {
   }, [query.data]);
 
   if (!query.data) return <div className="empty">{query.isError ? "加载失败" : "加载中…"}</div>;
-  const { settings, lastRunAt, nextRunAt, pendingCount, dirtyCount } = query.data;
+  const { settings, lastRunAt, nextRunAt } = query.data;
   const auto = settings.autoEnabled;
   const triggerClass = `sub ${auto ? "" : "disabled-block"}`;
 
@@ -131,19 +128,6 @@ export function SettingsOrganize() {
             />,
             triggerClass
           )}
-          {setRow(
-            `待整理 ${pendingCount} 条${dirtyCount ? ` · 编辑后待整理 ${dirtyCount} 条` : ""}`,
-            `上次 ${formatDateTime(lastRunAt)} · 下次 ${auto ? formatDateTime(nextRunAt) : "—"}`,
-            <button
-              type="button"
-              className="btn sm primary"
-              data-organize-scope="inbox"
-              disabled={Boolean(active)}
-              onClick={() => openOrganize({ scopes: ["inbox_pending", "inbox_all"] })}
-            >
-              {active ? `整理中 ${active.done}/${active.total || "…"}` : "✦ 整理"}
-            </button>
-          )}
         </>,
         null,
         "已整理且内容没变的记录不会重复整理；编辑内容或新增备注不会触发自动整理；服务未运行时错过的定时任务会在下次启动时补跑"
@@ -171,7 +155,7 @@ export function SettingsOrganize() {
         "整理记录",
         setRow(
           `最近一次：${formatDateTime(runs.data?.runs[0]?.startedAt ?? lastRunAt)}`,
-          "每次整理的判定结果、知识库变化和消耗",
+          `下次 ${auto ? formatDateTime(nextRunAt) : "—"} · 每次整理的判定结果、知识库变化和消耗`,
           <Link to="/runs" className="btn sm">
             查看整理记录 →
           </Link>

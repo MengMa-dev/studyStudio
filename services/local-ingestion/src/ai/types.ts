@@ -6,7 +6,8 @@ export const AI_TASKS = ["learning_judge", "knowledge_processing", "entry_rewrit
 export type AiTask = (typeof AI_TASKS)[number];
 export type GenerativeAiTask = Exclude<AiTask, "embedding">;
 
-export const PROVIDER_TYPES = ["openai-compatible", "google", "ollama", "mock", "anthropic"] as const;
+/** `agent-cli`: headless Cursor / Claude Code / Codex; `baseUrl` holds the client id. */
+export const PROVIDER_TYPES = ["openai-compatible", "google", "ollama", "mock", "anthropic", "agent-cli"] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export type ProviderConfig = {

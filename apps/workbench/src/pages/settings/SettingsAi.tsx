@@ -5,6 +5,7 @@ import { api } from "@/api";
 import { useUiStore } from "@/stores/ui";
 import { AiProviderForm } from "./AiProviderForm";
 import { AiTaskRow } from "./AiTaskRow";
+import { AgentInstallGroup } from "./SettingsAgent";
 import { PROVIDER_TYPE_COLOR, PROVIDER_TYPE_LABEL, TASK_META, apiErrorMessage, formatTokens, providerStatusText } from "./ai-labels";
 import { setGroup } from "./SettingsPage";
 
@@ -89,6 +90,8 @@ export function SettingsAi() {
 
   if (!providers.data || !tasks.data || !usage.data) return <div className="empty">加载中…</div>;
   const providerList = providers.data.providers;
+  // Agent providers are managed by the 「一键安装到 Agent」 card and cannot embed.
+  const apiProviders = providerList.filter((provider) => provider.type !== "agent-cli");
   const taskList = tasks.data.tasks;
 
   const modelsFor = (providerId: string): string[] => {
@@ -167,12 +170,12 @@ export function SettingsAi() {
       {setGroup(
         "模型服务商",
         <>
-          {providerList.length === 0 && openId !== "new" ? (
+          {apiProviders.length === 0 && openId !== "new" ? (
             <div className="set-row">
               <div className="grow set-desc">还没有服务商。添加后在下方为每个任务选择模型。</div>
             </div>
           ) : null}
-          {providerList.map(providerRow)}
+          {apiProviders.map(providerRow)}
           {openId === "new" ? (
             <AiProviderForm
               provider={null}
@@ -194,6 +197,8 @@ export function SettingsAi() {
         "点击服务商展开配置；达到每日上限后自动整理会暂停，手动整理需确认后继续"
       )}
 
+      <AgentInstallGroup />
+
       {setGroup(
         "按任务选择模型",
         <>
@@ -210,7 +215,7 @@ export function SettingsAi() {
                 key={`${meta.task}:${value.providerId}:${value.model}:${value.fallbackProviderId}:${value.fallbackModel}`}
                 meta={meta}
                 value={value}
-                providers={providerList}
+                providers={meta.task === "embedding" ? apiProviders : providerList}
                 modelsFor={modelsFor}
                 saving={saveTask.isPending}
                 onSave={(update) => saveTask.mutate(update)}

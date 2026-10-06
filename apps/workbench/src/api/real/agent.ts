@@ -1,10 +1,4 @@
-import {
-  AGENT_API,
-  agentConfigResponseSchema,
-  agentSkillInstallRequestSchema,
-  agentSkillInstallResponseSchema,
-  type AgentSkillInstallRequest
-} from "@study-studio/shared";
+import { AGENT_API, agentConfigResponseSchema, agentInstallRequestSchema, agentInstallResultSchema, type AgentInstallRequest } from "@study-studio/shared";
 
 import { request } from "./http";
 
@@ -17,8 +11,8 @@ export const realAgentApi = {
     return request(AGENT_API.tokenReset, { method: "POST" }, agentConfigResponseSchema);
   },
 
-  async installAgentSkill(requestBody: AgentSkillInstallRequest) {
-    const body = agentSkillInstallRequestSchema.parse(requestBody);
-    return request(AGENT_API.skillInstall, { method: "POST", body: JSON.stringify(body) }, agentSkillInstallResponseSchema);
+  async installAgent(requestBody: AgentInstallRequest) {
+    const body = agentInstallRequestSchema.parse(requestBody);
+    return request(AGENT_API.install, { method: "POST", body: JSON.stringify(body) }, agentInstallResultSchema);
   }
 };

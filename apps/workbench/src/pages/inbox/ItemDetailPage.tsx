@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
 import { BackButton } from "@/components/ui/BackButton";
 import { MarkdownView } from "@/components/ui/MarkdownView";
-import { formatCapturedAt, fmtDuration, organizeStatusLabel, readStatusLabel, siteShort } from "@/lib/format";
+import { formatCapturedAt, fmtDuration, itemTypeLabel, organizeStatusLabel, readStatusLabel, siteShort } from "@/lib/format";
 import { useOrganizeStore } from "@/stores/organize";
 import { useUiStore } from "@/stores/ui";
 import { useModuleMemoryStore } from "@/stores/module-memory";
@@ -91,7 +91,7 @@ export function ItemDetailPage({ itemId }: Props) {
                   {icon.short}
                 </div>
                 <span className="muted">
-                  {item.site} · {item.type === "conversation" ? "问答" : "网页"} · {formatCapturedAt(item.capturedAt)} 收集
+                  {item.site} · {itemTypeLabel(item.type)} · {formatCapturedAt(item.capturedAt)} 收集
                 </span>
               </div>
               <h2>{item.title}</h2>

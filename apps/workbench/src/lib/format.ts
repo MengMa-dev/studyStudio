@@ -42,6 +42,10 @@ export function readStatusLabel(status: string): { label: string; tone: string }
   return status === "unread" ? { label: "未读", tone: "blue" } : { label: "已读", tone: "" };
 }
 
+export function itemTypeLabel(type: string): string {
+  return type === "conversation" ? "问答" : type === "document" ? "文档" : "网页";
+}
+
 export function siteShort(site: string | null): { color: string; short: string } {
   const map: Record<string, { color: string; short: string }> = {
     知乎: { color: "#0066ff", short: "知" },
@@ -50,7 +54,10 @@ export function siteShort(site: string | null): { color: string; short: string }
     GitHub: { color: "#24292f", short: "GH" },
     Wikipedia: { color: "#636466", short: "W" },
     DeepSeek: { color: "#4d6bfe", short: "DS" },
-    ChatGPT: { color: "#10a37f", short: "GPT" }
+    ChatGPT: { color: "#10a37f", short: "GPT" },
+    Cursor: { color: "#111111", short: "Cu" },
+    "Claude Code": { color: "#d97757", short: "CC" },
+    Codex: { color: "#10a37f", short: "Cx" }
   };
   if (site && map[site]) return map[site];
   return { color: "#868e96", short: (site ?? "?").slice(0, 1) };

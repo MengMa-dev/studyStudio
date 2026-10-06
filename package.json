@@ -12,6 +12,7 @@
     "start": "node packages/cli/bin/study-studio.js",
     "build:extension": "node scripts/build-extension.js",
     "ingestion": "tsx services/local-ingestion/src/server.ts",
+    "cli": "tsx scripts/cli-dev.ts",
     "demo": "node scripts/demo-ingestion.js",
     "e2e:extension": "tsx scripts/e2e-extension.js",
     "e2e:chat": "tsx scripts/e2e-chat.ts",

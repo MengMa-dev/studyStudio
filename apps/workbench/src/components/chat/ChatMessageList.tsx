@@ -22,7 +22,7 @@ export function ChatMessageList({ messages, status, className, currentPage, foot
   useEffect(() => {
     const list = listRef.current;
     if (list && list.scrollHeight > list.clientHeight) list.scrollTop = list.scrollHeight;
-    else endRef.current?.scrollIntoView?.({ block: "nearest" });
+    else endRef.current?.scrollIntoView?.({ block: "end" });
   }, [messages.length, lastLength, status]);
 
   return (
@@ -37,7 +37,7 @@ export function ChatMessageList({ messages, status, className, currentPage, foot
       ))}
       {status === "submitted" && last?.role === "user" ? <BotBubble muted>正在检索你的学习记录…</BotBubble> : null}
       {footer}
-      <div ref={endRef} />
+      <div className="chat-end" ref={endRef} />
     </div>
   );
 }

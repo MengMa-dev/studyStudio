@@ -2,6 +2,14 @@
 
 本仓库实现本地优先的学习内容采集最小链路：浏览器扩展或桌面内置浏览器中的采集器发出标准事件，本地接收服务把时间线和原始内容写入本地目录。方案见 `docs/collection-plan.md`。
 
+## 让 Agent 一句话安装
+
+在 Cursor / Claude Code / Codex 中发送：
+
+> 安装 https://github.com/MengMa-dev/studyStudio 的 skills
+
+Agent 会按 [`skills/INSTALL.md`](skills/INSTALL.md) 先征得确认，然后克隆并启动本地服务，再安装 `organize-kb` skill 与 `study-studio` MCP。手动安装同理：服务运行后执行 `npm start -- agent install --target cursor`（或 `study-studio agent install`）。
+
 ## 安装与使用（发布版）
 
 要求 Node.js ≥ 22.13（23.x 需 ≥ 23.5），本地数据库使用内置 `node:sqlite`；版本不满足时 CLI 会提示并退出。
@@ -13,7 +21,7 @@ npx study-studio --help
 ```
 
 - 数据目录默认 `~/StudyStudioData`（`--data-dir` > `STUDY_STUDIO_DATA_DIR` > 默认）；端口默认 `43118`（`--port` > `STUDY_STUDIO_PORT`）。
-- 启动后终端打印工作台一次性登录链接和配对令牌；`--no-open` 时手动打开该链接。
+- 启动后自动打开工作台并登录，浏览器会长期保持登录（服务重启不失效）；换浏览器或登录失效时运行 `study-studio open`。服务已在运行时再次执行 `study-studio` 等价于 `open`。
 - `sqlite-vec` 无当前平台预编译二进制时自动关闭向量检索（终端有提示），其余功能不受影响。
 - 开机自启（默认关闭）：先 `npm i -g study-studio`，再 `study-studio autostart enable`（macOS launchd / Linux systemd 用户服务 / Windows 计划任务）；`autostart status`、`autostart disable` 查看与关闭。
 
@@ -21,7 +29,7 @@ npx study-studio --help
 
 1. 从发布页下载 `study-studio-extension-<版本>-chrome.zip` 并解压（或自行运行 `npm run pack:extension`，产物在 `apps/browser-extension/.output/`）。
 2. Chrome 打开 `chrome://extensions`，开启「开发者模式」，「加载已解压的扩展程序」选择解压后的目录。
-3. 在扩展弹窗中填入终端打印的配对令牌，显示已连接即可。
+3. 打开一次工作台，扩展自动完成配对（弹窗显示已连接）。也可在弹窗中手动填写终端打印的配对令牌。
 
 ## 开发
 

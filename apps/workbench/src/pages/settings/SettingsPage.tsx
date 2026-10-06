@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { SettingsAgent } from "./SettingsAgent";
 import { SettingsAi } from "./SettingsAi";
 import { SettingsCollect } from "./SettingsCollect";
 import { SettingsData } from "./SettingsData";
@@ -8,9 +7,8 @@ import { SettingsOrganize } from "./SettingsOrganize";
 import { SettingsProfile } from "./SettingsProfile";
 const SECTIONS = [
   ["collect", "采集", "浏览器扩展、正文采集规则和排除规则"],
-  ["ai", "AI 模型", "模型服务商、按任务选模型和每日用量"],
+  ["ai", "模型能力", "模型服务商、Agent 接入、按任务选模型和每日用量"],
   ["organize", "整理规则", "自动整理触发器和输出语言"],
-  ["agent", "Agent 接入", "在 Cursor / Claude Code / Codex 中通过 MCP 整理收件箱"],
   ["profile", "学习者档案", "角色和近期学习方向"],
   ["data", "数据与隐私", "本地数据、备份和危险操作"]
 ] as const;
@@ -37,9 +35,6 @@ export function SettingsPage({ section }: Props) {
       break;
     case "organize":
       body = <SettingsOrganize />;
-      break;
-    case "agent":
-      body = <SettingsAgent />;
       break;
   }
 

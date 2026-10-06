@@ -5,7 +5,8 @@ export const PROVIDER_TYPE_LABEL: Record<AiProviderType, string> = {
   google: "Google Gemini",
   ollama: "Ollama（本地）",
   anthropic: "Anthropic",
-  mock: "Mock（测试用）"
+  mock: "Mock（测试用）",
+  "agent-cli": "Agent"
 };
 
 export const PROVIDER_TYPE_COLOR: Record<AiProviderType, string> = {
@@ -13,7 +14,8 @@ export const PROVIDER_TYPE_COLOR: Record<AiProviderType, string> = {
   google: "#4285f4",
   ollama: "#343a40",
   anthropic: "#d97757",
-  mock: "#868e96"
+  mock: "#868e96",
+  "agent-cli": "#7048e8"
 };
 
 export const BASE_URL_PLACEHOLDER: Record<AiProviderType, string> = {
@@ -21,7 +23,8 @@ export const BASE_URL_PLACEHOLDER: Record<AiProviderType, string> = {
   google: "https://generativelanguage.googleapis.com/v1beta",
   ollama: "http://127.0.0.1:11434/api",
   anthropic: "https://api.anthropic.com/v1",
-  mock: "无需填写"
+  mock: "无需填写",
+  "agent-cli": "无需填写"
 };
 
 export const TASK_META: { task: AiTaskName; label: string; en: string; desc: string }[] = [

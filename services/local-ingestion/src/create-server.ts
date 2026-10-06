@@ -16,6 +16,10 @@ import { startOrganizeWorker } from "./jobs/organize-worker.js";
 import { startScheduler, type Scheduler } from "./jobs/scheduler.js";
 import { createApp, createAuthState, createLoginLink, workbenchDistPath } from "./http/app.js";
 
+export { writeLoginCode } from "./http/auth.js";
+export { SKILL_DIRS } from "./domains/agent/skill.js";
+export { installAgent, mergeCodexMcp, mergeCursorMcp, type McpEndpoint } from "./domains/agent/install.js";
+
 export type CreateIngestionServerOptions = {
   dataDir: string;
   pairingToken: string;
@@ -103,7 +107,7 @@ export async function createIngestionServer(options: CreateIngestionServerOption
   if (!options.disableBackgroundIndex) chunkIndexer.backfill();
 
   let port = 0;
-  const auth = createAuthState(options.pairingToken, port, ensureMcpToken(dataDir));
+  const auth = createAuthState(options.pairingToken, port, ensureMcpToken(dataDir), dataDir);
   const presence = new PresenceStore();
   const ingestCtx = {
     app: appDb,
@@ -208,7 +212,7 @@ export async function startFromEnv(options: StartOptions = {}): Promise<StartedS
   const login = createLoginLink(ingestion.auth, listenPort);
   console.log(`Study Studio listening at http://127.0.0.1:${listenPort}${dev ? " (DEV)" : ""}`);
   console.log(`Workbench login: ${login}`);
-  console.log(`Pairing token: ${pairingToken}`);
+  console.log(`Pairing token: ${pairingToken}（浏览器扩展在打开工作台时自动配对，一般无需手填）`);
   console.log(`Data directory: ${dataDir}`);
   console.log(`Vector search: ${ingestion.db.vectorEnabled ? "enabled" : "disabled"}`);
   console.log(`AI providers: ${ingestion.aiConfig.countProviders()}`);

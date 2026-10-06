@@ -3,7 +3,8 @@ import { existsSync, realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startFromEnv } from "@study-studio/local-ingestion";
+import { startFromEnv, writeLoginCode } from "@study-studio/local-ingestion";
+import { installAgents, readMcpEndpoint } from "./agent.js";
 import { CliUsageError, USAGE, parseCliArgs, type CliCommand } from "./args.js";
 import { autostartStatus, disableAutostart, enableAutostart } from "./autostart.js";
 
@@ -44,9 +45,28 @@ export function openBrowser(url: string): void {
   }
 }
 
+async function isRunning(port: number): Promise<boolean> {
+  const res = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) }).catch(() => null);
+  return Boolean(res?.ok);
+}
+
+async function open(command: { dataDir: string; port: number }, browser = true): Promise<void> {
+  if (!(await isRunning(command.port))) {
+    console.error(`端口 ${command.port} 上没有运行中的 Study Studio，请先运行 study-studio 启动服务。`);
+    process.exit(1);
+  }
+  const url = `http://127.0.0.1:${command.port}/app/login?code=${writeLoginCode(command.dataDir)}`;
+  console.log(`Workbench login（5 分钟内有效，登录后浏览器长期保持）：${url}`);
+  if (browser) openBrowser(url);
+}
+
 async function start(command: Extract<CliCommand, { kind: "start" }>): Promise<void> {
   if (!(await checkPortFree(command.port))) {
-    console.error(`端口 ${command.port} 已被占用。若 Study Studio 已在运行，可直接访问 http://127.0.0.1:${command.port}/app/ ；否则用 --port 指定其他端口。`);
+    if (await isRunning(command.port)) {
+      console.log(`Study Studio 已在 http://127.0.0.1:${command.port} 运行。`);
+      return open(command, command.open);
+    }
+    console.error(`端口 ${command.port} 已被其他程序占用，请用 --port 指定其他端口。`);
     process.exit(1);
   }
   const workbenchDist = bundledWorkbench();
@@ -75,6 +95,12 @@ export async function main(argv: string[], context: MainContext): Promise<void> 
   if (command.kind === "help") return void console.log(USAGE);
   if (command.kind === "version") return void console.log(context.version);
   if (command.kind === "start") return start(command);
+  if (command.kind === "open") return open(command);
+  if (command.kind === "agent-install") {
+    if (!(await isRunning(command.port))) console.warn(`提示：端口 ${command.port} 上的服务当前未运行，MCP 需服务运行时才能连接。`);
+    for (const line of installAgents(command.targets, readMcpEndpoint(command.dataDir, command.port))) console.log(line);
+    return;
+  }
 
   if (command.action === "status") return void console.log(autostartStatus());
   if (command.action === "disable") return void console.log(disableAutostart());

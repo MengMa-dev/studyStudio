@@ -7,7 +7,7 @@ import { api } from "@/api";
 import { InboxOrganizeHint } from "@/components/organize/InboxOrganizeHint";
 import { EllipsisText } from "@/components/ui/EllipsisText";
 import { Modal } from "@/components/ui/Modal";
-import { formatCapturedAt, fmtDuration, organizeStatusLabel, readStatusLabel, siteShort } from "@/lib/format";
+import { formatCapturedAt, fmtDuration, itemTypeLabel, organizeStatusLabel, readStatusLabel, siteShort } from "@/lib/format";
 import { pageSelectionStats, partitionSelection } from "@/lib/selection";
 import { useOrganizeStore } from "@/stores/organize";
 import { useSelectionStore } from "@/stores/selection";
@@ -369,7 +369,7 @@ export function InboxPage({ type, status, onTypeChange, onStatusChange }: Props)
           </div>
           {impact.data ? (
             <div className="small muted">
-              影响预览：删除知识点 {impact.data.entriesToDelete.length} · 置 stale {impact.data.entriesToStale.length} · evidence {impact.data.evidenceCount}
+              影响预览：删除知识点 {impact.data.entriesToDelete.length} · 更新正文 {impact.data.entriesToStale.length} · evidence {impact.data.evidenceCount}
             </div>
           ) : null}
           <label className="row">
@@ -471,7 +471,7 @@ function InboxRow({ row, checked, onToggle, onOpen }: { row: InboxListRow; check
         </div>
         <div className="meta">
           <span>{row.site}</span>
-          <span>{row.type === "conversation" ? "问答" : "网页"}</span>
+          <span>{itemTypeLabel(row.type)}</span>
           {row.readingTotalSeconds ? <span>{fmtDuration(row.readingTotalSeconds)}</span> : null}
           {row.tags.map((tag) => (
             <span key={tag} className="tag">

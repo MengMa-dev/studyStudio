@@ -9,6 +9,7 @@ const TYPE_FILTERS = [
   { id: "all", label: "全部" },
   { id: "webpage", label: "网页学习" },
   { id: "conversation", label: "AI 问答" },
+  { id: "document", label: "文档" },
   { id: "fuzzy", label: "模糊备注" }
 ] as const;
 

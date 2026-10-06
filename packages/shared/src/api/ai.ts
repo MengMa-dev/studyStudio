@@ -5,7 +5,7 @@ export const AI_TASK_NAMES = ["learning_judge", "knowledge_processing", "entry_r
 export const aiTaskSchema = z.enum(AI_TASK_NAMES);
 export type AiTaskName = z.infer<typeof aiTaskSchema>;
 
-export const AI_PROVIDER_TYPES = ["openai-compatible", "google", "ollama", "mock", "anthropic"] as const;
+export const AI_PROVIDER_TYPES = ["openai-compatible", "google", "ollama", "mock", "anthropic", "agent-cli"] as const;
 export const aiProviderTypeSchema = z.enum(AI_PROVIDER_TYPES);
 export type AiProviderType = z.infer<typeof aiProviderTypeSchema>;
 

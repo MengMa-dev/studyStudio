@@ -148,6 +148,26 @@ function conversationActivities(db: DatabaseSync, range: DayRange): Activity[] {
   return out;
 }
 
+function documentActivities(db: DatabaseSync, range: DayRange): Activity[] {
+  const { start, end } = isoWindow(range);
+  const items = db
+    .prepare("SELECT * FROM items WHERE type = 'document' AND deleted_at IS NULL AND captured_at >= ? AND captured_at < ?")
+    .all(start, end) as ItemRow[];
+  return items.map((item) => ({
+    id: `document:${item.id}`,
+    type: "document" as const,
+    day: localDay(item.captured_at),
+    startedAt: item.captured_at,
+    title: item.site ? `${item.site} · ${item.title ?? ""}` : (item.title ?? ""),
+    site: item.site,
+    source: item.site,
+    itemId: item.id,
+    noteId: null,
+    seconds: null,
+    tags: ["已收集"]
+  }));
+}
+
 function fuzzyActivities(db: DatabaseSync, range: DayRange): Activity[] {
   const { start, end } = isoWindow(range);
   const notes = db
@@ -170,7 +190,7 @@ function fuzzyActivities(db: DatabaseSync, range: DayRange): Activity[] {
 
 /** Server-side aggregation of 04: one row per conversation item, per webpage item and day, per fuzzy note. */
 export function collectActivities(db: DatabaseSync, range: DayRange): Activity[] {
-  return [...webpageActivities(db, range), ...conversationActivities(db, range), ...fuzzyActivities(db, range)]
+  return [...webpageActivities(db, range), ...conversationActivities(db, range), ...documentActivities(db, range), ...fuzzyActivities(db, range)]
     .filter((activity) => activity.day >= range.from && activity.day <= range.to)
     .sort((a, b) => (a.startedAt === b.startedAt ? (a.id < b.id ? 1 : -1) : a.startedAt < b.startedAt ? 1 : -1));
 }

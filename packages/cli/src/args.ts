@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { AGENT_TARGETS, type AgentTarget } from "./agent.js";
 
 export const DEFAULT_PORT = 43118;
 
@@ -10,14 +11,21 @@ export type CliCommand =
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "start"; dataDir: string; port: number; open: boolean }
-  | { kind: "autostart"; action: AutostartAction; dataDir: string; port: number };
+  | { kind: "autostart"; action: AutostartAction; dataDir: string; port: number }
+  | { kind: "open"; dataDir: string; port: number }
+  | { kind: "agent-install"; dataDir: string; port: number; targets: AgentTarget[] };
 
 export class CliUsageError extends Error {}
 
 export const USAGE = `用法：study-studio [选项]
+      study-studio open [--data-dir <目录>] [--port <端口>]
+      study-studio agent install [--target cursor|claude|codex]... [--data-dir <目录>] [--port <端口>]
       study-studio autostart <enable|disable|status> [--data-dir <目录>] [--port <端口>]
 
-启动 Study Studio 本地服务（127.0.0.1）并在浏览器中打开工作台。
+启动 Study Studio 本地服务（127.0.0.1）并在浏览器中打开工作台；服务已在运行时直接登录并打开工作台。
+
+open：为正在运行的服务生成登录链接并打开工作台（换浏览器或登录失效时使用）。
+agent install：安装 organize-kb skill 并注册 study-studio MCP（默认 --target cursor，可重复），需服务已启动过。
 
 选项：
   --data-dir <目录>  数据目录（默认 ~/StudyStudioData，或环境变量 STUDY_STUDIO_DATA_DIR）
@@ -66,6 +74,18 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     if (rest.length > 0) throw new CliUsageError(`多余的参数：${rest.join(" ")}`);
     return { kind: "autostart", action, dataDir, port };
   }
+  if (command === "open") {
+    if (action !== undefined) throw new CliUsageError(`多余的参数：${[action, ...rest].join(" ")}`);
+    return { kind: "open", dataDir, port };
+  }
+  if (command === "agent") {
+    if (action !== "install") throw new CliUsageError("agent 需要子命令：install");
+    if (rest.length > 0) throw new CliUsageError(`多余的参数：${rest.join(" ")}`);
+    const targets = [...new Set(values.target ?? ["cursor"])];
+    const bad = targets.find((target) => !AGENT_TARGETS.includes(target as AgentTarget));
+    if (bad) throw new CliUsageError(`未知 agent：${bad}（可选 ${AGENT_TARGETS.join(" | ")}）`);
+    return { kind: "agent-install", dataDir, port, targets: targets as AgentTarget[] };
+  }
   throw new CliUsageError(`未知命令：${command}`);
 }
 
@@ -78,6 +98,7 @@ function parse(argv: string[]) {
       "data-dir": { type: "string" },
       port: { type: "string" },
       "no-open": { type: "boolean" },
+      target: { type: "string", multiple: true },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" }
     }

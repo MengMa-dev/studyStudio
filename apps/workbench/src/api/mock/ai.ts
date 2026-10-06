@@ -82,7 +82,8 @@ const MOCK_MODELS: Record<AiProviderType, string[]> = {
   google: ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-embedding-2"],
   "openai-compatible": ["nvidia/nemotron-3-super-120b-a12b:free", "qwen/qwen3.8-27b:free", "openai/gpt-oss-120b"],
   anthropic: ["claude-sonnet-4.5"],
-  mock: ["deterministic", "deterministic-embed"]
+  mock: ["deterministic", "deterministic-embed"],
+  "agent-cli": ["default"]
 };
 
 let providers = createProviders();
